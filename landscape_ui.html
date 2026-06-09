@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>JaEmu – Landscape UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+body{background:#0c0e14;color:#fff;font-family:'Rajdhani',sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+:root{--accent:#00e5a0;--bg-panel:#0d0f18;--bg-card:#161a24;--border:rgba(255,255,255,.08);--text-dim:rgba(255,255,255,.4);}
+
+/* ── TOPBAR ── */
+#topbar{display:flex;align-items:center;justify-content:space-between;height:42px;background:var(--bg-panel);padding:0 14px;flex-shrink:0;border-bottom:1px solid var(--border);}
+#topbar .left{display:flex;align-items:center;gap:10px;}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+#topbar h1{font-size:14px;font-weight:700;letter-spacing:.5px;}
+#topbar .runtime{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--accent);opacity:.8;}
+.topbar-btns{display:flex;gap:6px;}
+.icon-btn{width:28px;height:28px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s;}
+.icon-btn:active,.icon-btn.active{background:#1e2533;}
+.icon-btn svg{width:14px;height:14px;fill:none;stroke:rgba(255,255,255,.65);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+
+/* ── BODY ── */
+#body{display:flex;flex:1;overflow:hidden;}
+
+/* ── LEFT PANEL ── */
+#left-panel{width:156px;flex-shrink:0;background:var(--bg-panel);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:8px;}
+.panel-label{font-size:8px;font-weight:700;letter-spacing:1.5px;color:var(--text-dim);}
+
+/* Analog Stick */
+#analog-wrap{position:relative;width:120px;height:120px;}
+#analog-track{width:100%;height:100%;border-radius:50%;background:radial-gradient(circle,#1a1e2a 60%,#12151e);border:2px solid rgba(0,229,160,.25);position:relative;overflow:hidden;}
+#analog-ring{position:absolute;inset:8px;border-radius:50%;border:1px dashed rgba(0,229,160,.15);}
+#analog-knob{position:absolute;width:40px;height:40px;border-radius:50%;background:radial-gradient(135deg,#2a3045,#161a24);border:2px solid var(--accent);box-shadow:0 0 12px rgba(0,229,160,.35);top:50%;left:50%;transform:translate(-50%,-50%);transition:box-shadow .1s;cursor:grab;touch-action:none;}
+#analog-knob.active{box-shadow:0 0 18px rgba(0,229,160,.6);}
+/* compass labels */
+.dir-label{position:absolute;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);pointer-events:none;}
+.dl-up   {top:4px;left:50%;transform:translateX(-50%);}
+.dl-down {bottom:4px;left:50%;transform:translateX(-50%);}
+.dl-left {left:6px;top:50%;transform:translateY(-50%);}
+.dl-right{right:6px;top:50%;transform:translateY(-50%);}
+
+/* Active key badge + grid */
+#badge-row{display:flex;align-items:center;gap:8px;}
+#key-badge{width:44px;height:44px;border-radius:8px;background:var(--bg-card);border:1px solid rgba(0,229,160,.35);display:flex;flex-direction:column;align-items:center;justify-content:center;}
+#key-badge .num{font-family:'Share Tech Mono',monospace;font-size:18px;font-weight:700;color:var(--accent);line-height:1;}
+#key-badge .lbl{font-size:7px;color:var(--text-dim);}
+#mini-grid{display:grid;grid-template-columns:repeat(3,16px);grid-template-rows:repeat(3,16px);gap:2px;}
+.mg-cell{width:16px;height:16px;border-radius:3px;background:var(--bg-card);border:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:8px;color:var(--text-dim);transition:background .1s,color .1s,border-color .1s;}
+.mg-cell.active{background:rgba(0,229,160,.18);border-color:var(--accent);color:var(--accent);}
+
+/* ── CENTER PANEL ── */
+#center-panel{flex:1;display:flex;flex-direction:column;padding:4px 6px;gap:4px;}
+
+/* Softkeys */
+#softkeys{display:flex;gap:6px;height:40px;}
+.sk-btn{flex:1;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);font-family:'Rajdhani',sans-serif;font-size:12px;font-weight:700;letter-spacing:.5px;color:rgba(255,255,255,.85);cursor:pointer;transition:background .1s,border-color .1s;}
+.sk-btn:active,.sk-btn.pressed{background:#1e2533;border-color:rgba(0,229,160,.4);color:var(--accent);}
+.sk-btn.wide{flex:1.3;}
+
+/* Game screen */
+#screen-wrap{flex:1;position:relative;border-radius:10px;background:#000;border:2px solid #1e222d;overflow:hidden;}
+#screen-canvas{width:100%;height:100%;display:block;}
+#screen-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;}
+#screen-placeholder svg{width:40px;height:40px;stroke:rgba(0,229,160,.4);fill:none;stroke-width:1.5;}
+#screen-placeholder .no-game{font-family:'Share Tech Mono',monospace;font-size:12px;color:rgba(0,229,160,.6);letter-spacing:2px;}
+#screen-placeholder .tap-hint{font-size:10px;color:var(--text-dim);letter-spacing:1px;}
+#fps-badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.65);border:1px solid rgba(0,229,160,.5);border-radius:4px;padding:2px 5px;font-family:'Share Tech Mono',monospace;font-size:8px;font-weight:700;color:var(--accent);text-align:center;line-height:1.3;}
+
+/* Bottom bar */
+#bottombar{display:flex;gap:8px;height:38px;}
+.bb-btn{flex:1;border-radius:8px;background:var(--bg-card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.3px;color:rgba(255,255,255,.75);cursor:pointer;transition:background .1s;}
+.bb-btn:active{background:#1e2533;}
+.bb-btn svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.7;}
+
+/* ── RIGHT PANEL ── */
+#right-panel{width:156px;flex-shrink:0;background:var(--bg-panel);display:flex;flex-direction:column;align-items:center;justify-content:space-evenly;padding:8px;}
+
+/* D-pad */
+#dpad{position:relative;width:114px;height:114px;}
+#dpad-ring{width:100%;height:100%;border-radius:50%;background:radial-gradient(circle,#1a1e2a 55%,#12151e);border:2px solid rgba(255,255,255,.06);}
+.dp-btn{position:absolute;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:4px;}
+.dp-btn:active,.dp-btn.pressed{background:rgba(0,229,160,.12);}
+.dp-btn svg{width:18px;height:18px;fill:rgba(255,255,255,.55);transition:fill .1s;}
+.dp-btn:active svg,.dp-btn.pressed svg{fill:var(--accent);}
+#dp-up   {top:0;left:50%;transform:translateX(-50%);}
+#dp-down {bottom:0;left:50%;transform:translateX(-50%);}
+#dp-left {left:0;top:50%;transform:translateY(-50%);}
+#dp-right{right:0;top:50%;transform:translateY(-50%);}
+#dp-ok{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#0c0e14;cursor:pointer;transition:filter .1s;}
+#dp-ok:active{filter:brightness(1.2);}
+
+/* Action buttons */
+#action-row{display:flex;gap:12px;}
+.act-btn{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer;transition:filter .1s;}
+#btn-a{background:#a855f7;color:#fff;box-shadow:0 0 12px rgba(168,85,247,.4);}
+#btn-b{background:#f59e0b;color:#0c0e14;box-shadow:0 0 12px rgba(245,158,11,.4);}
+.act-btn:active{filter:brightness(1.25);}
+
+/* START / SEL */
+#sys-row{display:flex;gap:6px;width:100%;}
+.sys-btn{flex:1;height:32px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--text-dim);cursor:pointer;transition:background .1s,color .1s;}
+.sys-btn:active{background:#1e2533;color:#fff;}
+
+/* Feedback toast */
+#key-toast{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(0,229,160,.2);border:1px solid var(--accent);border-radius:20px;padding:4px 14px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--accent);pointer-events:none;opacity:0;transition:opacity .2s;}
+#key-toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div id="topbar">
+  <div class="left">
+    <div class="status-dot"></div>
+    <div>
+      <div id="top-title" style="font-size:14px;font-weight:700;">JaEmu</div>
+      <div class="runtime">RUNTIME v3.4.1</div>
+    </div>
+  </div>
+  <div class="topbar-btns">
+    <!-- Rotate -->
+    <div class="icon-btn" title="Rotate"><svg viewBox="0 0 24 24"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.67"/></svg></div>
+    <!-- Fullscreen -->
+    <div class="icon-btn" title="Fullscreen"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></div>
+    <!-- Settings -->
+    <div class="icon-btn" id="btn-settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+    <!-- Menu -->
+    <div class="icon-btn" title="Menu"><svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></div>
+  </div>
+</div>
+
+<!-- BODY -->
+<div id="body">
+
+  <!-- LEFT: Analog -->
+  <div id="left-panel">
+    <div class="panel-label">ANALOG → KEY</div>
+    <div id="analog-wrap">
+      <div id="analog-track">
+        <div id="analog-ring"></div>
+        <span class="dir-label dl-up">8</span>
+        <span class="dir-label dl-down">2</span>
+        <span class="dir-label dl-left">4</span>
+        <span class="dir-label dl-right">6</span>
+      </div>
+      <div id="analog-knob"></div>
+    </div>
+    <div id="badge-row">
+      <div id="key-badge">
+        <div class="num" id="active-key-num">5</div>
+        <div class="lbl">KEY</div>
+      </div>
+      <div id="mini-grid"></div>
+    </div>
+  </div>
+
+  <!-- CENTER: Screen -->
+  <div id="center-panel">
+    <div id="softkeys">
+      <button class="sk-btn wide" data-key="lsk">LSK</button>
+      <button class="sk-btn" data-key="star">*</button>
+      <button class="sk-btn" data-key="0">0</button>
+      <button class="sk-btn" data-key="hash">#</button>
+      <button class="sk-btn wide" data-key="rsk">RSK</button>
+    </div>
+    <div id="screen-wrap">
+      <canvas id="screen-canvas"></canvas>
+      <div id="screen-placeholder">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <div class="no-game">NO GAME LOADED</div>
+        <div class="tap-hint">TAP TO LOAD .JAR</div>
+      </div>
+      <div id="fps-badge">60<br>FPS</div>
+    </div>
+    <div id="bottombar">
+      <div class="bb-btn" id="btn-load">
+        <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Load ROM
+      </div>
+      <div class="bb-btn" id="btn-save">
+        <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save
+      </div>
+      <div class="bb-btn" id="btn-stop">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>
+        Stop
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: D-pad + Buttons -->
+  <div id="right-panel">
+    <div class="panel-label">D-PAD</div>
+    <div id="dpad">
+      <div id="dpad-ring"></div>
+      <!-- UP -->
+      <div class="dp-btn" id="dp-up" data-key="up"><svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg></div>
+      <!-- DOWN -->
+      <div class="dp-btn" id="dp-down" data-key="down"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+      <!-- LEFT -->
+      <div class="dp-btn" id="dp-left" data-key="left"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></div>
+      <!-- RIGHT -->
+      <div class="dp-btn" id="dp-right" data-key="right"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+      <!-- OK -->
+      <div id="dp-ok" data-key="fire">OK</div>
+    </div>
+    <div id="action-row">
+      <div class="act-btn" id="btn-a" data-key="fire">A</div>
+      <div class="act-btn" id="btn-b" data-key="0">B</div>
+    </div>
+    <div id="sys-row">
+      <div class="sys-btn" data-key="fire">START</div>
+      <div class="sys-btn" data-key="clear">SEL</div>
+    </div>
+  </div>
+</div>
+
+<div id="key-toast"></div>
+
+<script>
+// ── Mini grid setup ───────────────────────────────────────────────────────────
+const GRID_LAYOUT = [[1,2,3],[4,5,6],[7,8,9]];
+const gridEl = document.getElementById('mini-grid');
+GRID_LAYOUT.forEach(row => row.forEach(n => {
+  const c = document.createElement('div');
+  c.className = 'mg-cell';
+  c.textContent = n;
+  c.id = 'mg-' + n;
+  gridEl.appendChild(c);
+}));
+
+function setActiveKey(k) {
+  document.querySelectorAll('.mg-cell').forEach(c => c.classList.remove('active'));
+  const el = document.getElementById('mg-' + k);
+  if (el) el.classList.add('active');
+  document.getElementById('active-key-num').textContent = k;
+}
+setActiveKey(5);
+
+// ── Analog stick ─────────────────────────────────────────────────────────────
+const knob     = document.getElementById('analog-knob');
+const track    = document.getElementById('analog-track');
+let dragging   = false;
+let originX    = 0, originY = 0;
+const MAX_R    = 38; // max knob travel radius (px)
+
+// Nokia numpad mapping: 8=up, 2=down, 4=left, 6=right
+// (matches user spec / keyboard numpad convention)
+function getNumpadKey(dx, dy, dist) {
+  if (dist < MAX_R * 0.25) return 5;
+  let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (angle < 0) angle += 360;
+  const sector = Math.floor(((angle + 22.5) % 360) / 45);
+  return [6,3,2,1,4,7,8,9][sector]; // Right, Down-Right, Down, Down-Left, Left, Up-Left, Up, Up-Right
+}
+
+function moveKnob(cx, cy) {
+  const rect = track.getBoundingClientRect();
+  const dx = cx - (rect.left + rect.width  / 2);
+  const dy = cy - (rect.top  + rect.height / 2);
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const clamped = Math.min(dist, MAX_R);
+  const ratio = clamped / (dist || 1);
+  const nx = dx * ratio;
+  const ny = dy * ratio;
+  knob.style.left = (50 + (nx / (rect.width / 2)) * 50) + '%';
+  knob.style.top  = (50 + (ny / (rect.height / 2)) * 50) + '%';
+  const key = getNumpadKey(dx, dy, dist);
+  setActiveKey(key);
+  showToast('KEY ' + key);
+}
+
+function resetKnob() {
+  knob.style.left = '50%';
+  knob.style.top  = '50%';
+  knob.style.transition = 'left .15s cubic-bezier(.2,1,.4,1), top .15s cubic-bezier(.2,1,.4,1)';
+  setActiveKey(5);
+  knob.classList.remove('active');
+  setTimeout(() => knob.style.transition = '', 200);
+}
+
+// Touch
+knob.addEventListener('touchstart', e => { e.preventDefault(); dragging = true; knob.classList.add('active'); knob.style.transition=''; moveKnob(e.touches[0].clientX, e.touches[0].clientY); });
+document.addEventListener('touchmove', e => { if (!dragging) return; e.preventDefault(); moveKnob(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+document.addEventListener('touchend', () => { if (dragging) { dragging=false; resetKnob(); } });
+
+// Mouse (desktop testing)
+knob.addEventListener('mousedown', e => { e.preventDefault(); dragging=true; knob.classList.add('active'); knob.style.transition=''; });
+document.addEventListener('mousemove', e => { if (dragging) moveKnob(e.clientX, e.clientY); });
+document.addEventListener('mouseup', () => { if (dragging) { dragging=false; resetKnob(); } });
+
+// ── FPS counter (simulated) ───────────────────────────────────────────────────
+let fps = 60;
+setInterval(() => {
+  fps = 56 + Math.floor(Math.random() * 8);
+  document.getElementById('fps-badge').innerHTML = fps + '<br>FPS';
+}, 1000);
+
+// ── Key toast ────────────────────────────────────────────────────────────────
+let toastTimer;
+const toast = document.getElementById('key-toast');
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 600);
+}
+
+// ── Button press feedback (softkeys, dpad, action, sys) ───────────────────────
+function addPressRelease(el, label) {
+  function onDown(e) { e.preventDefault(); el.classList.add('pressed'); showToast(label); }
+  function onUp()    { el.classList.remove('pressed'); }
+  el.addEventListener('touchstart', onDown, {passive:false});
+  el.addEventListener('touchend',   onUp);
+  el.addEventListener('mousedown',  onDown);
+  el.addEventListener('mouseup',    onUp);
+  el.addEventListener('mouseleave', onUp);
+}
+
+// Soft keys
+document.querySelectorAll('.sk-btn').forEach(b => addPressRelease(b, b.textContent.trim()));
+// D-pad
+['dp-up','dp-down','dp-left','dp-right','dp-ok'].forEach(id => {
+  const el = document.getElementById(id);
+  const labels = {
+    'dp-up':'↑ UP (key 8)', 'dp-down':'↓ DOWN (key 2)',
+    'dp-left':'← LEFT (key 4)', 'dp-right':'→ RIGHT (key 6)', 'dp-ok':'OK / FIRE'
+  };
+  addPressRelease(el, labels[id]);
+});
+// Action
+addPressRelease(document.getElementById('btn-a'), 'A (FIRE)');
+addPressRelease(document.getElementById('btn-b'), 'B (key 0)');
+// Sys
+document.querySelectorAll('.sys-btn').forEach(b => addPressRelease(b, b.textContent.trim()));
+
+// Load ROM (file picker demo)
+document.getElementById('btn-load').addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.jar,.jad';
+  inp.onchange = () => {
+    if (inp.files[0]) {
+      document.querySelector('#topbar #top-title').textContent = inp.files[0].name.replace(/\.[^.]+$/,'');
+      document.getElementById('screen-placeholder').style.display = 'none';
+      showToast('ROM loaded: ' + inp.files[0].name);
+    }
+  };
+  inp.click();
+});
+
+document.getElementById('btn-save').addEventListener('click', () => showToast('State Saved ✓'));
+document.getElementById('btn-stop').addEventListener('click', () => {
+  document.getElementById('screen-placeholder').style.display = 'flex';
+  document.querySelector('#topbar #top-title').textContent = 'JaEmu';
+  showToast('Game Stopped');
+});
+
+// Settings toggle demo
+document.getElementById('btn-settings').addEventListener('click', function(){
+  this.classList.toggle('active');
+  showToast(this.classList.contains('active') ? 'Settings ON' : 'Settings OFF');
+});
+</script>
+</body>
+</html>
