@@ -47,6 +47,7 @@ import com.emulator.j2me.core.EmulatorEngine
 import com.emulator.j2me.data.GameModel
 import com.emulator.j2me.data.GameSettings
 import com.emulator.j2me.data.GameSettingsStore
+import com.emulator.j2me.data.Thumbnails
 import javax.microedition.lcdui.Canvas as J2meCanvas
 import javax.microedition.lcdui.Displayable
 import java.util.concurrent.CountDownLatch
@@ -300,7 +301,8 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                                 targetW = game.targetWidth,
                                 targetH = game.targetHeight,
                                 initialScaleMode = game.scaleMode,
-                                initialSmoothScaling = game.smoothScaling
+                                initialSmoothScaling = game.smoothScaling,
+                                gameId = game.id
                             ).also { gameViewRef = it }
                         },
                         update = { it.updateDisplaySettings(scaleMode, smoothScaling) },
@@ -1073,7 +1075,8 @@ class J2meGameView(
     private val targetW: Int,
     private val targetH: Int,
     initialScaleMode: String,
-    initialSmoothScaling: Boolean = false
+    initialSmoothScaling: Boolean = false,
+    private val gameId: String = ""
 ) : View(context) {
 
     @Volatile private var scaleMode: String = initialScaleMode
@@ -1111,6 +1114,26 @@ class J2meGameView(
     // Real FPS measured by the render thread (updated once per second)
     @Volatile var currentFps: Int = 0
 
+    // Guard so the library thumbnail is only written once per view.
+    @Volatile private var thumbnailCaptured = false
+
+    /** Copy the current framebuffer and persist it as this game's library thumbnail. */
+    private fun captureThumbnail() {
+        if (gameId.isEmpty()) return
+        val snapshot = synchronized(bitmapLock) {
+            offscreenBitmap.copy(Bitmap.Config.ARGB_8888, false)
+        }
+        try {
+            java.io.FileOutputStream(Thumbnails.file(context, gameId)).use { out ->
+                snapshot.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("J2ME-Render", "thumbnail capture failed: ${e.message}")
+        } finally {
+            snapshot.recycle()
+        }
+    }
+
     init {
         j2meCanvas.setRepaintListener(object : J2meCanvas.RepaintListener {
             override fun onRequestRepaint() {
@@ -1143,6 +1166,7 @@ class J2meGameView(
             var backoffMs = 100L
             var consecutiveFailures = 0
             var frameCount = 0
+            var totalFrames = 0
             var lastFpsMs = System.currentTimeMillis()
             while (renderRunning) {
                 try {
@@ -1157,6 +1181,13 @@ class J2meGameView(
                     consecutiveFailures = 0
                     // FPS counting
                     frameCount++
+                    totalFrames++
+                    // Capture the library thumbnail once the game has drawn a few
+                    // frames (skips the initial blank/splash frame).
+                    if (!thumbnailCaptured && totalFrames >= 8) {
+                        thumbnailCaptured = true
+                        captureThumbnail()
+                    }
                     val nowMs = System.currentTimeMillis()
                     if (nowMs - lastFpsMs >= 1000L) {
                         currentFps = frameCount
@@ -1423,7 +1454,8 @@ fun LandscapeEmulatorContent(
                                 targetW = game.targetWidth,
                                 targetH = game.targetHeight,
                                 initialScaleMode = game.scaleMode,
-                                initialSmoothScaling = game.smoothScaling
+                                initialSmoothScaling = game.smoothScaling,
+                                gameId = game.id
                             ).also { onFpsUpdate(it) }
                         },
                         update = { it.updateDisplaySettings(scaleMode, smoothScaling) },

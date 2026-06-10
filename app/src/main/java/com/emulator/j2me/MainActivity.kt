@@ -46,6 +46,7 @@ import com.emulator.j2me.data.GameDatabase
 import com.emulator.j2me.data.GameModel
 import com.emulator.j2me.data.GameSettings
 import com.emulator.j2me.data.GameSettingsStore
+import com.emulator.j2me.data.Thumbnails
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -208,6 +209,7 @@ fun MainScreen() {
                         File(game.jarPath).delete()
                         File(game.dexPath).delete()
                         game.iconPath?.let { File(it).delete() }
+                        Thumbnails.file(context, game.id).delete()
                         gamesList = db.loadGames()
                         activeGameForDetail = null
                         Toast.makeText(context, "Game dihapus", Toast.LENGTH_SHORT).show()
@@ -349,16 +351,27 @@ fun GameCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            val context = LocalContext.current
+            // Prefer the gameplay thumbnail (captured on first frame); fall back to
+            // the JAR icon, then a generic placeholder.
+            val previewModel = remember(game.id) {
+                val thumb = Thumbnails.file(context, game.id)
+                when {
+                    thumb.exists() -> thumb
+                    game.iconPath != null -> File(game.iconPath)
+                    else -> null
+                }
+            }
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(width = 84.dp, height = 108.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF2E2E2E)),
                 contentAlignment = Alignment.Center
             ) {
-                if (game.iconPath != null) {
+                if (previewModel != null) {
                     AsyncImage(
-                        model = File(game.iconPath),
+                        model = previewModel,
                         contentDescription = game.name,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
