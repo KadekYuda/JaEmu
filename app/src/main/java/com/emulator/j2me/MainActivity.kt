@@ -44,6 +44,8 @@ import coil.compose.AsyncImage
 import com.emulator.j2me.core.DexTranslator
 import com.emulator.j2me.data.GameDatabase
 import com.emulator.j2me.data.GameModel
+import com.emulator.j2me.data.GameSettings
+import com.emulator.j2me.data.GameSettingsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -91,6 +93,7 @@ fun MainScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { GameDatabase(context) }
+    val settingsStore = remember { GameSettingsStore(context) }
     
     var gamesList by remember { mutableStateOf(emptyList<GameModel>()) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -189,8 +192,10 @@ fun MainScreen() {
 
             // Game details sheet dialog
             activeGameForDetail?.let { game ->
+                val settings = remember(game.id) { settingsStore.loadOrDefault(game) }
                 GameDetailDialog(
                     game = game,
+                    settings = settings,
                     onDismiss = { activeGameForDetail = null },
                     onLaunch = { 
                         activeGameForDetail = null
@@ -198,6 +203,7 @@ fun MainScreen() {
                     },
                     onDelete = {
                         db.removeGame(game.id)
+                        settingsStore.remove(game.id)
                         // Delete files
                         File(game.jarPath).delete()
                         File(game.dexPath).delete()
@@ -206,9 +212,8 @@ fun MainScreen() {
                         activeGameForDetail = null
                         Toast.makeText(context, "Game dihapus", Toast.LENGTH_SHORT).show()
                     },
-                    onSaveSettings = { updatedGame ->
-                        db.updateGame(updatedGame)
-                        gamesList = db.loadGames()
+                    onSaveSettings = { updatedSettings ->
+                        settingsStore.save(game.id, updatedSettings)
                         activeGameForDetail = null
                     }
                 )
@@ -411,16 +416,17 @@ fun GameCard(
 @Composable
 fun GameDetailDialog(
     game: GameModel,
+    settings: GameSettings,
     onDismiss: () -> Unit,
     onLaunch: () -> Unit,
     onDelete: () -> Unit,
-    onSaveSettings: (GameModel) -> Unit
+    onSaveSettings: (GameSettings) -> Unit
 ) {
-    var widthText by remember { mutableStateOf(game.targetWidth.toString()) }
-    var heightText by remember { mutableStateOf(game.targetHeight.toString()) }
-    var scaleMode by remember { mutableStateOf(game.scaleMode) }
-    var smoothScaling by remember { mutableStateOf(game.smoothScaling) }
-    var opacity by remember { mutableFloatStateOf(game.keypadOpacity) }
+    var widthText by remember { mutableStateOf(settings.targetWidth.toString()) }
+    var heightText by remember { mutableStateOf(settings.targetHeight.toString()) }
+    var scaleMode by remember { mutableStateOf(settings.scaleMode) }
+    var smoothScaling by remember { mutableStateOf(settings.smoothScaling) }
+    var opacity by remember { mutableFloatStateOf(settings.keypadOpacity) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -561,7 +567,7 @@ fun GameDetailDialog(
                             onClick = {
                                 val w = widthText.toIntOrNull() ?: 240
                                 val h = heightText.toIntOrNull() ?: 320
-                                onSaveSettings(game.copy(
+                                onSaveSettings(settings.copy(
                                     targetWidth = w,
                                     targetHeight = h,
                                     scaleMode = scaleMode,
@@ -674,17 +680,18 @@ fun AboutTab() {
 }
 
 private fun launchGame(context: Context, game: GameModel) {
+    val settings = GameSettingsStore(context).loadOrDefault(game)
     val intent = Intent(context, EmulatorActivity::class.java).apply {
         putExtra("GAME_ID", game.id)
         putExtra("GAME_NAME", game.name)
         putExtra("JAR_PATH", game.jarPath)
         putExtra("DEX_PATH", game.dexPath)
         putExtra("MAIN_CLASS", game.mainClass)
-        putExtra("TARGET_WIDTH", game.targetWidth)
-        putExtra("TARGET_HEIGHT", game.targetHeight)
-        putExtra("SCALE_MODE", game.scaleMode)
-        putExtra("SMOOTH_SCALING", game.smoothScaling)
-        putExtra("OPACITY", game.keypadOpacity)
+        putExtra("TARGET_WIDTH", settings.targetWidth)
+        putExtra("TARGET_HEIGHT", settings.targetHeight)
+        putExtra("SCALE_MODE", settings.scaleMode)
+        putExtra("SMOOTH_SCALING", settings.smoothScaling)
+        putExtra("OPACITY", settings.keypadOpacity)
     }
     context.startActivity(intent)
 }

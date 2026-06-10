@@ -44,8 +44,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.emulator.j2me.core.CrashLogger
 import com.emulator.j2me.core.EmulatorEngine
-import com.emulator.j2me.data.GameDatabase
 import com.emulator.j2me.data.GameModel
+import com.emulator.j2me.data.GameSettings
+import com.emulator.j2me.data.GameSettingsStore
 import javax.microedition.lcdui.Canvas as J2meCanvas
 import javax.microedition.lcdui.Displayable
 import java.util.concurrent.CountDownLatch
@@ -522,14 +523,14 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     scaleMode = mode
                     game.scaleMode = mode
                     settingsScope.launch(Dispatchers.IO) {
-                        persistDisplaySettings(context, game.id, mode, smoothScaling)
+                        persistDisplaySettings(context, game, mode, smoothScaling)
                     }
                 },
                 onSmoothScalingChange = { smooth ->
                     smoothScaling = smooth
                     game.smoothScaling = smooth
                     settingsScope.launch(Dispatchers.IO) {
-                        persistDisplaySettings(context, game.id, scaleMode, smooth)
+                        persistDisplaySettings(context, game, scaleMode, smooth)
                     }
                 },
                 onDismiss = { isMenuOpen = false },
@@ -1608,18 +1609,18 @@ fun QuickMenuOverlay(
     }
 }
 
-// Persist the live display settings back to the game's stored entry without
-// clobbering its other fields (the in-memory GameModel here is built from a
-// partial set of Intent extras).
+// Persist the live display settings to the per-game settings store, preserving
+// any other stored fields (the in-memory GameModel here is built from a partial
+// set of Intent extras, so it is only used to seed defaults on first write).
 private fun persistDisplaySettings(
     context: Context,
-    gameId: String,
+    game: GameModel,
     scaleMode: String,
     smoothScaling: Boolean
 ) {
-    val db = GameDatabase(context)
-    val stored = db.loadGames().find { it.id == gameId } ?: return
-    db.updateGame(stored.copy(scaleMode = scaleMode, smoothScaling = smoothScaling))
+    val store = GameSettingsStore(context)
+    val current = store.load(game.id) ?: GameSettings.fromGameModel(game)
+    store.save(game.id, current.copy(scaleMode = scaleMode, smoothScaling = smoothScaling))
 }
 
 private fun Context.currentView(): View? {
