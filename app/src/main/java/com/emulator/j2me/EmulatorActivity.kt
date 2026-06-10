@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.emulator.j2me.core.CrashLogger
 import com.emulator.j2me.core.EmulatorEngine
+import com.emulator.j2me.data.GameDatabase
 import com.emulator.j2me.data.GameModel
 import javax.microedition.lcdui.Canvas as J2meCanvas
 import javax.microedition.lcdui.Displayable
@@ -59,6 +60,7 @@ class EmulatorActivity : ComponentActivity() {
     private var targetWidth = 240
     private var targetHeight = 320
     private var scaleMode = "FIT"
+    private var smoothScaling = false
     private var opacity = 0.6f
     // Incremented each time the back gesture fires; observed by EmulatorScreen to open the menu
     private var externalMenuTrigger by mutableIntStateOf(0)
@@ -78,6 +80,7 @@ class EmulatorActivity : ComponentActivity() {
         targetWidth = intent.getIntExtra("TARGET_WIDTH", 240)
         targetHeight = intent.getIntExtra("TARGET_HEIGHT", 320)
         scaleMode = intent.getStringExtra("SCALE_MODE") ?: "FIT"
+        smoothScaling = intent.getBooleanExtra("SMOOTH_SCALING", false)
         opacity = intent.getFloatExtra("OPACITY", 0.6f)
 
         val game = GameModel(
@@ -93,7 +96,8 @@ class EmulatorActivity : ComponentActivity() {
             targetWidth = targetWidth,
             targetHeight = targetHeight,
             keypadOpacity = opacity,
-            scaleMode = scaleMode
+            scaleMode = scaleMode,
+            smoothScaling = smoothScaling
         )
 
         CrashLogger.install(this, game.name)
@@ -134,6 +138,10 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var activeDisplayable by remember { mutableStateOf<Displayable?>(null) }
     var isMenuOpen by remember { mutableStateOf(false) }
     var gameStarted by remember { mutableStateOf(false) }
+
+    // Live display settings, editable from the in-game Quick Menu.
+    var scaleMode by remember { mutableStateOf(game.scaleMode) }
+    var smoothScaling by remember { mutableStateOf(game.smoothScaling) }
     
     // Tracks active Nokia key value from analog stick (1 to 9, default 5)
     var activeAnalogKey by remember { mutableIntStateOf(5) }
@@ -285,7 +293,8 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                                 j2meCanvas = activeDisplayable as J2meCanvas,
                                 targetW = game.targetWidth,
                                 targetH = game.targetHeight,
-                                scaleMode = game.scaleMode
+                                initialScaleMode = game.scaleMode,
+                                initialSmoothScaling = game.smoothScaling
                             ).also { gameViewRef = it }
                         },
                         modifier = Modifier.fillMaxSize()
@@ -501,6 +510,20 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
         // Translucent Quick Menu Overlay
         if (isMenuOpen) {
             QuickMenuOverlay(
+                scaleMode = scaleMode,
+                smoothScaling = smoothScaling,
+                onScaleModeChange = { mode ->
+                    scaleMode = mode
+                    game.scaleMode = mode
+                    gameViewRef?.updateDisplaySettings(mode, smoothScaling)
+                    persistDisplaySettings(context, game.id, mode, smoothScaling)
+                },
+                onSmoothScalingChange = { smooth ->
+                    smoothScaling = smooth
+                    game.smoothScaling = smooth
+                    gameViewRef?.updateDisplaySettings(scaleMode, smooth)
+                    persistDisplaySettings(context, game.id, scaleMode, smooth)
+                },
                 onDismiss = { isMenuOpen = false },
                 onReset = {
                     isMenuOpen = false
@@ -1040,13 +1063,27 @@ class J2meGameView(
     private val j2meCanvas: J2meCanvas,
     private val targetW: Int,
     private val targetH: Int,
-    private val scaleMode: String
+    initialScaleMode: String,
+    initialSmoothScaling: Boolean = false
 ) : View(context) {
+
+    @Volatile private var scaleMode: String = initialScaleMode
 
     private val offscreenBitmap: Bitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
     private val offscreenCanvas: android.graphics.Canvas = android.graphics.Canvas(offscreenBitmap)
     private val j2meGraphics: javax.microedition.lcdui.Graphics = javax.microedition.lcdui.Graphics()
     private val destRect = android.graphics.Rect()
+
+    // Paint used to blit the framebuffer onto the view. isFilterBitmap toggles
+    // bilinear smoothing (true) vs nearest-neighbor crisp pixels (false).
+    private val scalePaint = android.graphics.Paint().apply { isFilterBitmap = initialSmoothScaling }
+
+    /** Apply scale mode / smoothing changes live (e.g. from the in-game Quick Menu). */
+    fun updateDisplaySettings(scaleMode: String, smoothScaling: Boolean) {
+        this.scaleMode = scaleMode
+        scalePaint.isFilterBitmap = smoothScaling
+        postInvalidate()
+    }
 
     // Render thread state
     @Volatile private var renderRunning = true
@@ -1166,12 +1203,12 @@ class J2meGameView(
             when (scaleMode) {
                 "STRETCH" -> {
                     destRect.set(0, 0, width, height)
-                    canvas.drawBitmap(offscreenBitmap, null, destRect, null)
+                    canvas.drawBitmap(offscreenBitmap, null, destRect, scalePaint)
                 }
                 "ORIGINAL" -> {
                     val left = ((width - targetW) / 2).toFloat()
                     val top = ((height - targetH) / 2).toFloat()
-                    canvas.drawBitmap(offscreenBitmap, left, top, null)
+                    canvas.drawBitmap(offscreenBitmap, left, top, scalePaint)
                 }
                 "FIT" -> {
                     val scale = Math.min(viewW / targetW, viewH / targetH)
@@ -1180,7 +1217,7 @@ class J2meGameView(
                     val left = (width - destW) / 2
                     val top = (height - destH) / 2
                     destRect.set(left, top, left + destW, top + destH)
-                    canvas.drawBitmap(offscreenBitmap, null, destRect, null)
+                    canvas.drawBitmap(offscreenBitmap, null, destRect, scalePaint)
                 }
             }
         }
@@ -1374,7 +1411,8 @@ fun LandscapeEmulatorContent(
                                 j2meCanvas = canvas,
                                 targetW = game.targetWidth,
                                 targetH = game.targetHeight,
-                                scaleMode = game.scaleMode
+                                initialScaleMode = game.scaleMode,
+                                initialSmoothScaling = game.smoothScaling
                             ).also { onFpsUpdate(it) }
                         },
                         modifier = Modifier.fillMaxSize()
@@ -1441,6 +1479,10 @@ fun LandscapeEmulatorContent(
 
 @Composable
 fun QuickMenuOverlay(
+    scaleMode: String,
+    smoothScaling: Boolean,
+    onScaleModeChange: (String) -> Unit,
+    onSmoothScalingChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
     onExit: () -> Unit
@@ -1478,6 +1520,57 @@ fun QuickMenuOverlay(
                     color = MaterialTheme.colorScheme.primary
                 )
 
+                // ── Display settings ─────────────────────────────────────────
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Skala Tampilan",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("FIT", "STRETCH", "ORIGINAL").forEach { mode ->
+                            FilterChip(
+                                selected = scaleMode == mode,
+                                onClick = { onScaleModeChange(mode) },
+                                label = { Text(mode, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Penghalusan",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                            Text(
+                                if (smoothScaling) "Halus (bilinear)" else "Tajam (nearest)",
+                                fontSize = 10.sp,
+                                fontFamily = ShareTechMonoFont,
+                                color = Color.White.copy(alpha = 0.5f)
+                            )
+                        }
+                        Switch(
+                            checked = smoothScaling,
+                            onCheckedChange = { onSmoothScalingChange(it) }
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth()
@@ -1502,6 +1595,20 @@ fun QuickMenuOverlay(
             }
         }
     }
+}
+
+// Persist the live display settings back to the game's stored entry without
+// clobbering its other fields (the in-memory GameModel here is built from a
+// partial set of Intent extras).
+private fun persistDisplaySettings(
+    context: Context,
+    gameId: String,
+    scaleMode: String,
+    smoothScaling: Boolean
+) {
+    val db = GameDatabase(context)
+    val stored = db.loadGames().find { it.id == gameId } ?: return
+    db.updateGame(stored.copy(scaleMode = scaleMode, smoothScaling = smoothScaling))
 }
 
 private fun Context.currentView(): View? {

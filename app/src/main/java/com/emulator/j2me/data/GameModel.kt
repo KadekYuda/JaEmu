@@ -13,5 +13,8 @@ data class GameModel(
     var targetWidth: Int = 240,
     var targetHeight: Int = 320,
     var keypadOpacity: Float = 0.6f,
-    var scaleMode: String = "FIT" 
+    var scaleMode: String = "FIT",
+    // When true the framebuffer is scaled with bilinear filtering (smooth);
+    // when false it is scaled with nearest-neighbor sampling (crisp pixels).
+    var smoothScaling: Boolean = false
 )

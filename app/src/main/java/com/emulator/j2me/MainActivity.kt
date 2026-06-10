@@ -419,6 +419,7 @@ fun GameDetailDialog(
     var widthText by remember { mutableStateOf(game.targetWidth.toString()) }
     var heightText by remember { mutableStateOf(game.targetHeight.toString()) }
     var scaleMode by remember { mutableStateOf(game.scaleMode) }
+    var smoothScaling by remember { mutableStateOf(game.smoothScaling) }
     var opacity by remember { mutableFloatStateOf(game.keypadOpacity) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -509,6 +510,23 @@ fun GameDetailDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Penghalusan (Smoothing)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            if (smoothScaling) "Halus / bilinear" else "Tajam / nearest-neighbor",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                    Switch(checked = smoothScaling, onCheckedChange = { smoothScaling = it })
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Text("Transparansi Keypad: ${(opacity * 100).toInt()}%", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Slider(
                     value = opacity,
@@ -547,6 +565,7 @@ fun GameDetailDialog(
                                     targetWidth = w,
                                     targetHeight = h,
                                     scaleMode = scaleMode,
+                                    smoothScaling = smoothScaling,
                                     keypadOpacity = opacity
                                 ))
                             }
@@ -664,6 +683,7 @@ private fun launchGame(context: Context, game: GameModel) {
         putExtra("TARGET_WIDTH", game.targetWidth)
         putExtra("TARGET_HEIGHT", game.targetHeight)
         putExtra("SCALE_MODE", game.scaleMode)
+        putExtra("SMOOTH_SCALING", game.smoothScaling)
         putExtra("OPACITY", game.keypadOpacity)
     }
     context.startActivity(intent)
