@@ -3,13 +3,30 @@ package com.emulator.j2me.data
 import android.content.Context
 import com.google.gson.Gson
 
+/**
+ * Per-game on-screen control offsets (in pixels) from each cluster's default
+ * position, applied when the player customizes the button layout. Null/zero
+ * means the default layout.
+ */
+data class ButtonLayout(
+    var analogDx: Float = 0f,
+    var analogDy: Float = 0f,
+    var dpadDx: Float = 0f,
+    var dpadDy: Float = 0f,
+    var softkeysDx: Float = 0f,
+    var softkeysDy: Float = 0f
+)
+
 /** Per-game tunable settings, persisted independently of the game library entry. */
 data class GameSettings(
     var targetWidth: Int = 240,
     var targetHeight: Int = 320,
     var scaleMode: String = "FIT",
     var smoothScaling: Boolean = false,
-    var keypadOpacity: Float = 0.6f
+    var keypadOpacity: Float = 0.6f,
+    // Null for games using the default control layout (back-compat with older
+    // stored JSON that predates layout customization).
+    var buttonLayout: ButtonLayout? = null
 ) {
     companion object {
         fun fromGameModel(game: GameModel) = GameSettings(

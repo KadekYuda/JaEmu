@@ -44,10 +44,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.emulator.j2me.core.CrashLogger
 import com.emulator.j2me.core.EmulatorEngine
+import com.emulator.j2me.data.ButtonLayout
 import com.emulator.j2me.data.GameModel
 import com.emulator.j2me.data.GameSettings
 import com.emulator.j2me.data.GameSettingsStore
 import com.emulator.j2me.data.Thumbnails
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import javax.microedition.lcdui.Canvas as J2meCanvas
 import javax.microedition.lcdui.Displayable
 import java.util.concurrent.CountDownLatch
@@ -154,6 +157,27 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var gameViewRef: J2meGameView? by remember { mutableStateOf(null) }
     // Scope for persisting settings off the main thread.
     val settingsScope = rememberCoroutineScope()
+
+    // ── Button layout customization ──────────────────────────────────────────
+    val settingsStore = remember { GameSettingsStore(context) }
+    val initialLayout = remember { settingsStore.load(game.id)?.buttonLayout ?: ButtonLayout() }
+    var layoutEditMode by remember { mutableStateOf(false) }
+    var analogOffset by remember { mutableStateOf(Offset(initialLayout.analogDx, initialLayout.analogDy)) }
+    var dpadOffset by remember { mutableStateOf(Offset(initialLayout.dpadDx, initialLayout.dpadDy)) }
+    var softkeysOffset by remember { mutableStateOf(Offset(initialLayout.softkeysDx, initialLayout.softkeysDy)) }
+
+    fun persistButtonLayout() {
+        val snapshot = ButtonLayout(
+            analogDx = analogOffset.x, analogDy = analogOffset.y,
+            dpadDx = dpadOffset.x, dpadDy = dpadOffset.y,
+            softkeysDx = softkeysOffset.x, softkeysDy = softkeysOffset.y
+        )
+        settingsScope.launch(Dispatchers.IO) {
+            val current = settingsStore.load(game.id) ?: GameSettings.fromGameModel(game)
+            current.buttonLayout = snapshot
+            settingsStore.save(game.id, current)
+        }
+    }
 
     // Poll the view's currentFps twice per second
     LaunchedEffect(gameViewRef) {
@@ -350,6 +374,11 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             // 3. Softkeys row: LSK | * | 0 | # | RSK
             if (activeDisplayable is J2meCanvas) {
                 val canvas = activeDisplayable as J2meCanvas
+                DraggableControl(
+                    editMode = layoutEditMode,
+                    offset = softkeysOffset,
+                    onDrag = { softkeysOffset += it }
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -385,6 +414,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                         modifier = Modifier.weight(1.4f)
                     )
                 }
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -400,11 +430,17 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Left: Analog Stick
-                    AnalogStick(
-                        canvas = canvas,
-                        activeKey = activeAnalogKey,
-                        onKeyChanged = { activeAnalogKey = it }
-                    )
+                    DraggableControl(
+                        editMode = layoutEditMode,
+                        offset = analogOffset,
+                        onDrag = { analogOffset += it }
+                    ) {
+                        AnalogStick(
+                            canvas = canvas,
+                            activeKey = activeAnalogKey,
+                            onKeyChanged = { activeAnalogKey = it }
+                        )
+                    }
                     
                     // Middle: Real-time keypad feedback badge & 3x3 grid
                     Column(
@@ -451,28 +487,34 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     }
 
                     // Right: D-pad + A/B Buttons
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    DraggableControl(
+                        editMode = layoutEditMode,
+                        offset = dpadOffset,
+                        onDrag = { dpadOffset += it }
                     ) {
-                        GameDpad(canvas = canvas)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        // Action Buttons A and B
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            CircularActionButton(
-                                label = "A",
-                                color = Color(0xFFA855F7), // Purple color
-                                onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_SELECT_FIRE) },
-                                onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_SELECT_FIRE) }
-                            )
-                            CircularActionButton(
-                                label = "B",
-                                color = Color(0xFFF59E0B), // Yellow/Orange color
-                                onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_NUM0) },
-                                onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_NUM0) }
-                            )
+                            GameDpad(canvas = canvas)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            // Action Buttons A and B
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularActionButton(
+                                    label = "A",
+                                    color = Color(0xFFA855F7), // Purple color
+                                    onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_SELECT_FIRE) },
+                                    onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_SELECT_FIRE) }
+                                )
+                                CircularActionButton(
+                                    label = "B",
+                                    color = Color(0xFFF59E0B), // Yellow/Orange color
+                                    onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_NUM0) },
+                                    onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_NUM0) }
+                                )
+                            }
                         }
                     }
                 }
@@ -516,11 +558,52 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
         }
         } // end portrait else
 
+        // Layout-edit banner: lets the player reset/finish repositioning controls.
+        if (layoutEditMode) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .background(Color(0xFF0D0F18).copy(alpha = 0.92f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Edit Tata Letak — geser kontrol",
+                    color = Color(0xFF00E5A0),
+                    fontFamily = RajdhaniFont,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            analogOffset = Offset.Zero
+                            dpadOffset = Offset.Zero
+                            softkeysOffset = Offset.Zero
+                            persistButtonLayout()
+                        }
+                    ) { Text("Reset", fontSize = 12.sp) }
+                    Button(
+                        onClick = {
+                            layoutEditMode = false
+                            persistButtonLayout()
+                        }
+                    ) { Text("Selesai", fontSize = 12.sp) }
+                }
+            }
+        }
+
         // Translucent Quick Menu Overlay
         if (isMenuOpen) {
             QuickMenuOverlay(
                 scaleMode = scaleMode,
                 smoothScaling = smoothScaling,
+                onEditLayout = {
+                    isMenuOpen = false
+                    layoutEditMode = true
+                },
                 onScaleModeChange = { mode ->
                     scaleMode = mode
                     game.scaleMode = mode
@@ -601,6 +684,50 @@ fun CircularActionButton(
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp
         )
+    }
+}
+
+/**
+ * Wraps an on-screen control cluster so it can be repositioned by the player.
+ * The cluster is visually translated by [offset]. While [editMode] is on, a
+ * dashed highlight + drag handle overlays the cluster and consumes drags,
+ * reporting deltas via [onDrag]; outside edit mode the wrapper is transparent
+ * and the underlying control behaves normally.
+ */
+@Composable
+fun DraggableControl(
+    editMode: Boolean,
+    offset: Offset,
+    onDrag: (Offset) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val latestOnDrag by rememberUpdatedState(onDrag)
+    Box(
+        modifier = Modifier.offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
+    ) {
+        content()
+        if (editMode) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color(0xFF00E5A0).copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                    .border(2.dp, Color(0xFF00E5A0).copy(alpha = 0.8f), RoundedCornerShape(10.dp))
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            latestOnDrag(dragAmount)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.OpenWith,
+                    contentDescription = "Geser kontrol",
+                    tint = Color(0xFF00E5A0),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
     }
 }
 
@@ -1527,6 +1654,7 @@ fun QuickMenuOverlay(
     smoothScaling: Boolean,
     onScaleModeChange: (String) -> Unit,
     onSmoothScalingChange: (Boolean) -> Unit,
+    onEditLayout: () -> Unit,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
     onExit: () -> Unit
@@ -1620,6 +1748,19 @@ fun QuickMenuOverlay(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Kembali Bermain")
+                }
+
+                OutlinedButton(
+                    onClick = onEditLayout,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.OpenWith,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Edit Tata Letak")
                 }
 
                 OutlinedButton(
