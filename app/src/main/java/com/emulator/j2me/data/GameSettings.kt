@@ -26,7 +26,9 @@ data class GameSettings(
     var keypadOpacity: Float = 0.6f,
     // Null for games using the default control layout (back-compat with older
     // stored JSON that predates layout customization).
-    var buttonLayout: ButtonLayout? = null
+    var buttonLayout: ButtonLayout? = null,
+    // Max render frames per second; 0 means unlimited (the previous behavior).
+    var fpsLimit: Int = 0
 ) {
     companion object {
         fun fromGameModel(game: GameModel) = GameSettings(

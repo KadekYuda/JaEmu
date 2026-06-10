@@ -148,6 +148,8 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     // Live display settings, editable from the in-game Quick Menu.
     var scaleMode by remember { mutableStateOf(game.scaleMode) }
     var smoothScaling by remember { mutableStateOf(game.smoothScaling) }
+    // Render FPS cap (0 == unlimited), editable from the in-game Quick Menu.
+    var fpsLimit by remember { mutableIntStateOf(GameSettingsStore(context).load(game.id)?.fpsLimit ?: 0) }
     
     // Tracks active Nokia key value from analog stick (1 to 9, default 5)
     var activeAnalogKey by remember { mutableIntStateOf(5) }
@@ -175,6 +177,14 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
         settingsScope.launch(Dispatchers.IO) {
             val current = settingsStore.load(game.id) ?: GameSettings.fromGameModel(game)
             current.buttonLayout = snapshot
+            settingsStore.save(game.id, current)
+        }
+    }
+
+    fun persistFpsLimit(limit: Int) {
+        settingsScope.launch(Dispatchers.IO) {
+            val current = settingsStore.load(game.id) ?: GameSettings.fromGameModel(game)
+            current.fpsLimit = limit
             settingsStore.save(game.id, current)
         }
     }
@@ -220,6 +230,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                 game = game,
                 scaleMode = scaleMode,
                 smoothScaling = smoothScaling,
+                fpsLimit = fpsLimit,
                 activeAnalogKey = activeAnalogKey,
                 onKeyChanged = { activeAnalogKey = it },
                 gameFps = gameFps,
@@ -326,10 +337,14 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                                 targetH = game.targetHeight,
                                 initialScaleMode = game.scaleMode,
                                 initialSmoothScaling = game.smoothScaling,
-                                gameId = game.id
+                                gameId = game.id,
+                                initialFpsLimit = fpsLimit
                             ).also { gameViewRef = it }
                         },
-                        update = { it.updateDisplaySettings(scaleMode, smoothScaling) },
+                        update = {
+                            it.updateDisplaySettings(scaleMode, smoothScaling)
+                            it.updateFpsLimit(fpsLimit)
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -600,6 +615,11 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             QuickMenuOverlay(
                 scaleMode = scaleMode,
                 smoothScaling = smoothScaling,
+                fpsLimit = fpsLimit,
+                onFpsLimitChange = { limit ->
+                    fpsLimit = limit
+                    persistFpsLimit(limit)
+                },
                 onEditLayout = {
                     isMenuOpen = false
                     layoutEditMode = true
@@ -1203,10 +1223,19 @@ class J2meGameView(
     private val targetH: Int,
     initialScaleMode: String,
     initialSmoothScaling: Boolean = false,
-    private val gameId: String = ""
+    private val gameId: String = "",
+    initialFpsLimit: Int = 0
 ) : View(context) {
 
     @Volatile private var scaleMode: String = initialScaleMode
+
+    // Max frames per second the render thread will produce; 0 == unlimited.
+    @Volatile private var fpsLimit: Int = initialFpsLimit
+
+    /** Update the render FPS cap live (e.g. from the in-game Quick Menu). */
+    fun updateFpsLimit(limit: Int) {
+        fpsLimit = limit
+    }
 
     private val offscreenBitmap: Bitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
     private val offscreenCanvas: android.graphics.Canvas = android.graphics.Canvas(offscreenBitmap)
@@ -1295,7 +1324,21 @@ class J2meGameView(
             var frameCount = 0
             var totalFrames = 0
             var lastFpsMs = System.currentTimeMillis()
+            var lastFrameStartMs = 0L
             while (renderRunning) {
+                // FPS limiter: hold back the next frame until the minimum
+                // inter-frame interval has elapsed (0 == unlimited). Interrupts
+                // (used to wake on repaint) are swallowed so the cap still holds.
+                val limit = fpsLimit
+                if (limit > 0 && lastFrameStartMs != 0L) {
+                    val minIntervalMs = 1000L / limit
+                    var remaining = minIntervalMs - (System.currentTimeMillis() - lastFrameStartMs)
+                    while (renderRunning && remaining > 0) {
+                        try { Thread.sleep(remaining) } catch (_: InterruptedException) {}
+                        remaining = minIntervalMs - (System.currentTimeMillis() - lastFrameStartMs)
+                    }
+                }
+                lastFrameStartMs = System.currentTimeMillis()
                 try {
                     synchronized(bitmapLock) {
                         j2meCanvas.paint(j2meGraphics)
@@ -1438,6 +1481,7 @@ fun LandscapeEmulatorContent(
     game: GameModel,
     scaleMode: String,
     smoothScaling: Boolean,
+    fpsLimit: Int,
     activeAnalogKey: Int,
     onKeyChanged: (Int) -> Unit,
     gameFps: Int = 0,
@@ -1582,10 +1626,14 @@ fun LandscapeEmulatorContent(
                                 targetH = game.targetHeight,
                                 initialScaleMode = game.scaleMode,
                                 initialSmoothScaling = game.smoothScaling,
-                                gameId = game.id
+                                gameId = game.id,
+                                initialFpsLimit = fpsLimit
                             ).also { onFpsUpdate(it) }
                         },
-                        update = { it.updateDisplaySettings(scaleMode, smoothScaling) },
+                        update = {
+                            it.updateDisplaySettings(scaleMode, smoothScaling)
+                            it.updateFpsLimit(fpsLimit)
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                     Box(
@@ -1652,8 +1700,10 @@ fun LandscapeEmulatorContent(
 fun QuickMenuOverlay(
     scaleMode: String,
     smoothScaling: Boolean,
+    fpsLimit: Int,
     onScaleModeChange: (String) -> Unit,
     onSmoothScalingChange: (Boolean) -> Unit,
+    onFpsLimitChange: (Int) -> Unit,
     onEditLayout: () -> Unit,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
@@ -1738,6 +1788,27 @@ fun QuickMenuOverlay(
                             checked = smoothScaling,
                             onCheckedChange = { onSmoothScalingChange(it) }
                         )
+                    }
+
+                    Text(
+                        "Batas FPS",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // 0 == unlimited; remaining values cap the render thread.
+                        listOf(0 to "Off", 60 to "60", 30 to "30", 15 to "15").forEach { (value, label) ->
+                            FilterChip(
+                                selected = fpsLimit == value,
+                                onClick = { onFpsLimitChange(value) },
+                                label = { Text(label, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
 
