@@ -53,6 +53,7 @@ import java.util.concurrent.TimeUnit
 import android.content.res.Configuration
 import androidx.activity.OnBackPressedCallback
 import androidx.compose.ui.platform.LocalConfiguration
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class EmulatorActivity : ComponentActivity() {
@@ -149,6 +150,8 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var gameFps by remember { mutableIntStateOf(0) }
     // Ref to the active view so the LaunchedEffect can poll currentFps
     var gameViewRef: J2meGameView? by remember { mutableStateOf(null) }
+    // Scope for persisting settings off the main thread.
+    val settingsScope = rememberCoroutineScope()
 
     // Poll the view's currentFps twice per second
     LaunchedEffect(gameViewRef) {
@@ -189,6 +192,8 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             LandscapeEmulatorContent(
                 canvas = activeDisplayable as J2meCanvas,
                 game = game,
+                scaleMode = scaleMode,
+                smoothScaling = smoothScaling,
                 activeAnalogKey = activeAnalogKey,
                 onKeyChanged = { activeAnalogKey = it },
                 gameFps = gameFps,
@@ -297,6 +302,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                                 initialSmoothScaling = game.smoothScaling
                             ).also { gameViewRef = it }
                         },
+                        update = { it.updateDisplaySettings(scaleMode, smoothScaling) },
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -515,14 +521,16 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                 onScaleModeChange = { mode ->
                     scaleMode = mode
                     game.scaleMode = mode
-                    gameViewRef?.updateDisplaySettings(mode, smoothScaling)
-                    persistDisplaySettings(context, game.id, mode, smoothScaling)
+                    settingsScope.launch(Dispatchers.IO) {
+                        persistDisplaySettings(context, game.id, mode, smoothScaling)
+                    }
                 },
                 onSmoothScalingChange = { smooth ->
                     smoothScaling = smooth
                     game.smoothScaling = smooth
-                    gameViewRef?.updateDisplaySettings(scaleMode, smooth)
-                    persistDisplaySettings(context, game.id, scaleMode, smooth)
+                    settingsScope.launch(Dispatchers.IO) {
+                        persistDisplaySettings(context, game.id, scaleMode, smooth)
+                    }
                 },
                 onDismiss = { isMenuOpen = false },
                 onReset = {
@@ -1269,6 +1277,8 @@ class J2meGameView(
 fun LandscapeEmulatorContent(
     canvas: J2meCanvas,
     game: GameModel,
+    scaleMode: String,
+    smoothScaling: Boolean,
     activeAnalogKey: Int,
     onKeyChanged: (Int) -> Unit,
     gameFps: Int = 0,
@@ -1415,6 +1425,7 @@ fun LandscapeEmulatorContent(
                                 initialSmoothScaling = game.smoothScaling
                             ).also { onFpsUpdate(it) }
                         },
+                        update = { it.updateDisplaySettings(scaleMode, smoothScaling) },
                         modifier = Modifier.fillMaxSize()
                     )
                     Box(
