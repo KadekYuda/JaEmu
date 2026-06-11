@@ -44,7 +44,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.emulator.j2me.core.CrashLogger
 import com.emulator.j2me.core.EmulatorEngine
+import com.emulator.j2me.data.ButtonLayout
 import com.emulator.j2me.data.GameModel
+import com.emulator.j2me.data.GameSettings
+import com.emulator.j2me.data.GameSettingsStore
+import com.emulator.j2me.data.Thumbnails
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import javax.microedition.lcdui.Canvas as J2meCanvas
 import javax.microedition.lcdui.Displayable
 import java.util.concurrent.CountDownLatch
@@ -52,6 +58,7 @@ import java.util.concurrent.TimeUnit
 import android.content.res.Configuration
 import androidx.activity.OnBackPressedCallback
 import androidx.compose.ui.platform.LocalConfiguration
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class EmulatorActivity : ComponentActivity() {
@@ -59,6 +66,7 @@ class EmulatorActivity : ComponentActivity() {
     private var targetWidth = 240
     private var targetHeight = 320
     private var scaleMode = "FIT"
+    private var smoothScaling = false
     private var opacity = 0.6f
     // Incremented each time the back gesture fires; observed by EmulatorScreen to open the menu
     private var externalMenuTrigger by mutableIntStateOf(0)
@@ -78,6 +86,7 @@ class EmulatorActivity : ComponentActivity() {
         targetWidth = intent.getIntExtra("TARGET_WIDTH", 240)
         targetHeight = intent.getIntExtra("TARGET_HEIGHT", 320)
         scaleMode = intent.getStringExtra("SCALE_MODE") ?: "FIT"
+        smoothScaling = intent.getBooleanExtra("SMOOTH_SCALING", false)
         opacity = intent.getFloatExtra("OPACITY", 0.6f)
 
         val game = GameModel(
@@ -93,7 +102,8 @@ class EmulatorActivity : ComponentActivity() {
             targetWidth = targetWidth,
             targetHeight = targetHeight,
             keypadOpacity = opacity,
-            scaleMode = scaleMode
+            scaleMode = scaleMode,
+            smoothScaling = smoothScaling
         )
 
         CrashLogger.install(this, game.name)
@@ -134,6 +144,12 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var activeDisplayable by remember { mutableStateOf<Displayable?>(null) }
     var isMenuOpen by remember { mutableStateOf(false) }
     var gameStarted by remember { mutableStateOf(false) }
+
+    // Live display settings, editable from the in-game Quick Menu.
+    var scaleMode by remember { mutableStateOf(game.scaleMode) }
+    var smoothScaling by remember { mutableStateOf(game.smoothScaling) }
+    // Render FPS cap (0 == unlimited), editable from the in-game Quick Menu.
+    var fpsLimit by remember { mutableIntStateOf(GameSettingsStore(context).load(game.id)?.fpsLimit ?: 0) }
     
     // Tracks active Nokia key value from analog stick (1 to 9, default 5)
     var activeAnalogKey by remember { mutableIntStateOf(5) }
@@ -141,6 +157,37 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var gameFps by remember { mutableIntStateOf(0) }
     // Ref to the active view so the LaunchedEffect can poll currentFps
     var gameViewRef: J2meGameView? by remember { mutableStateOf(null) }
+    // Scope for persisting settings off the main thread.
+    val settingsScope = rememberCoroutineScope()
+
+    // ── Button layout customization ──────────────────────────────────────────
+    val settingsStore = remember { GameSettingsStore(context) }
+    val initialLayout = remember { settingsStore.load(game.id)?.buttonLayout ?: ButtonLayout() }
+    var layoutEditMode by remember { mutableStateOf(false) }
+    var analogOffset by remember { mutableStateOf(Offset(initialLayout.analogDx, initialLayout.analogDy)) }
+    var dpadOffset by remember { mutableStateOf(Offset(initialLayout.dpadDx, initialLayout.dpadDy)) }
+    var softkeysOffset by remember { mutableStateOf(Offset(initialLayout.softkeysDx, initialLayout.softkeysDy)) }
+
+    fun persistButtonLayout() {
+        val snapshot = ButtonLayout(
+            analogDx = analogOffset.x, analogDy = analogOffset.y,
+            dpadDx = dpadOffset.x, dpadDy = dpadOffset.y,
+            softkeysDx = softkeysOffset.x, softkeysDy = softkeysOffset.y
+        )
+        settingsScope.launch(Dispatchers.IO) {
+            val current = settingsStore.load(game.id) ?: GameSettings.fromGameModel(game)
+            current.buttonLayout = snapshot
+            settingsStore.save(game.id, current)
+        }
+    }
+
+    fun persistFpsLimit(limit: Int) {
+        settingsScope.launch(Dispatchers.IO) {
+            val current = settingsStore.load(game.id) ?: GameSettings.fromGameModel(game)
+            current.fpsLimit = limit
+            settingsStore.save(game.id, current)
+        }
+    }
 
     // Poll the view's currentFps twice per second
     LaunchedEffect(gameViewRef) {
@@ -181,6 +228,9 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             LandscapeEmulatorContent(
                 canvas = activeDisplayable as J2meCanvas,
                 game = game,
+                scaleMode = scaleMode,
+                smoothScaling = smoothScaling,
+                fpsLimit = fpsLimit,
                 activeAnalogKey = activeAnalogKey,
                 onKeyChanged = { activeAnalogKey = it },
                 gameFps = gameFps,
@@ -285,8 +335,15 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                                 j2meCanvas = activeDisplayable as J2meCanvas,
                                 targetW = game.targetWidth,
                                 targetH = game.targetHeight,
-                                scaleMode = game.scaleMode
+                                initialScaleMode = game.scaleMode,
+                                initialSmoothScaling = game.smoothScaling,
+                                gameId = game.id,
+                                initialFpsLimit = fpsLimit
                             ).also { gameViewRef = it }
+                        },
+                        update = {
+                            it.updateDisplaySettings(scaleMode, smoothScaling)
+                            it.updateFpsLimit(fpsLimit)
                         },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -332,6 +389,11 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             // 3. Softkeys row: LSK | * | 0 | # | RSK
             if (activeDisplayable is J2meCanvas) {
                 val canvas = activeDisplayable as J2meCanvas
+                DraggableControl(
+                    editMode = layoutEditMode,
+                    offset = softkeysOffset,
+                    onDrag = { softkeysOffset += it }
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -367,6 +429,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                         modifier = Modifier.weight(1.4f)
                     )
                 }
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -382,11 +445,17 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Left: Analog Stick
-                    AnalogStick(
-                        canvas = canvas,
-                        activeKey = activeAnalogKey,
-                        onKeyChanged = { activeAnalogKey = it }
-                    )
+                    DraggableControl(
+                        editMode = layoutEditMode,
+                        offset = analogOffset,
+                        onDrag = { analogOffset += it }
+                    ) {
+                        AnalogStick(
+                            canvas = canvas,
+                            activeKey = activeAnalogKey,
+                            onKeyChanged = { activeAnalogKey = it }
+                        )
+                    }
                     
                     // Middle: Real-time keypad feedback badge & 3x3 grid
                     Column(
@@ -433,28 +502,34 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     }
 
                     // Right: D-pad + A/B Buttons
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    DraggableControl(
+                        editMode = layoutEditMode,
+                        offset = dpadOffset,
+                        onDrag = { dpadOffset += it }
                     ) {
-                        GameDpad(canvas = canvas)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        // Action Buttons A and B
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            CircularActionButton(
-                                label = "A",
-                                color = Color(0xFFA855F7), // Purple color
-                                onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_SELECT_FIRE) },
-                                onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_SELECT_FIRE) }
-                            )
-                            CircularActionButton(
-                                label = "B",
-                                color = Color(0xFFF59E0B), // Yellow/Orange color
-                                onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_NUM0) },
-                                onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_NUM0) }
-                            )
+                            GameDpad(canvas = canvas)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            // Action Buttons A and B
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularActionButton(
+                                    label = "A",
+                                    color = Color(0xFFA855F7), // Purple color
+                                    onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_SELECT_FIRE) },
+                                    onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_SELECT_FIRE) }
+                                )
+                                CircularActionButton(
+                                    label = "B",
+                                    color = Color(0xFFF59E0B), // Yellow/Orange color
+                                    onClickPress = { canvas.postKeyPressed(J2meCanvas.KEY_NUM0) },
+                                    onClickRelease = { canvas.postKeyReleased(J2meCanvas.KEY_NUM0) }
+                                )
+                            }
                         }
                     }
                 }
@@ -498,9 +573,71 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
         }
         } // end portrait else
 
+        // Layout-edit banner: lets the player reset/finish repositioning controls.
+        if (layoutEditMode) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .background(Color(0xFF0D0F18).copy(alpha = 0.92f))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Edit Tata Letak — geser kontrol",
+                    color = Color(0xFF00E5A0),
+                    fontFamily = RajdhaniFont,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            analogOffset = Offset.Zero
+                            dpadOffset = Offset.Zero
+                            softkeysOffset = Offset.Zero
+                            persistButtonLayout()
+                        }
+                    ) { Text("Reset", fontSize = 12.sp) }
+                    Button(
+                        onClick = {
+                            layoutEditMode = false
+                            persistButtonLayout()
+                        }
+                    ) { Text("Selesai", fontSize = 12.sp) }
+                }
+            }
+        }
+
         // Translucent Quick Menu Overlay
         if (isMenuOpen) {
             QuickMenuOverlay(
+                scaleMode = scaleMode,
+                smoothScaling = smoothScaling,
+                fpsLimit = fpsLimit,
+                onFpsLimitChange = { limit ->
+                    fpsLimit = limit
+                    persistFpsLimit(limit)
+                },
+                onEditLayout = {
+                    isMenuOpen = false
+                    layoutEditMode = true
+                },
+                onScaleModeChange = { mode ->
+                    scaleMode = mode
+                    game.scaleMode = mode
+                    settingsScope.launch(Dispatchers.IO) {
+                        persistDisplaySettings(context, game, mode, smoothScaling)
+                    }
+                },
+                onSmoothScalingChange = { smooth ->
+                    smoothScaling = smooth
+                    game.smoothScaling = smooth
+                    settingsScope.launch(Dispatchers.IO) {
+                        persistDisplaySettings(context, game, scaleMode, smooth)
+                    }
+                },
                 onDismiss = { isMenuOpen = false },
                 onReset = {
                     isMenuOpen = false
@@ -567,6 +704,50 @@ fun CircularActionButton(
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp
         )
+    }
+}
+
+/**
+ * Wraps an on-screen control cluster so it can be repositioned by the player.
+ * The cluster is visually translated by [offset]. While [editMode] is on, a
+ * dashed highlight + drag handle overlays the cluster and consumes drags,
+ * reporting deltas via [onDrag]; outside edit mode the wrapper is transparent
+ * and the underlying control behaves normally.
+ */
+@Composable
+fun DraggableControl(
+    editMode: Boolean,
+    offset: Offset,
+    onDrag: (Offset) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val latestOnDrag by rememberUpdatedState(onDrag)
+    Box(
+        modifier = Modifier.offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
+    ) {
+        content()
+        if (editMode) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color(0xFF00E5A0).copy(alpha = 0.12f), RoundedCornerShape(10.dp))
+                    .border(2.dp, Color(0xFF00E5A0).copy(alpha = 0.8f), RoundedCornerShape(10.dp))
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            latestOnDrag(dragAmount)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.OpenWith,
+                    contentDescription = "Geser kontrol",
+                    tint = Color(0xFF00E5A0),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
     }
 }
 
@@ -1040,13 +1221,37 @@ class J2meGameView(
     private val j2meCanvas: J2meCanvas,
     private val targetW: Int,
     private val targetH: Int,
-    private val scaleMode: String
+    initialScaleMode: String,
+    initialSmoothScaling: Boolean = false,
+    private val gameId: String = "",
+    initialFpsLimit: Int = 0
 ) : View(context) {
+
+    @Volatile private var scaleMode: String = initialScaleMode
+
+    // Max frames per second the render thread will produce; 0 == unlimited.
+    @Volatile private var fpsLimit: Int = initialFpsLimit
+
+    /** Update the render FPS cap live (e.g. from the in-game Quick Menu). */
+    fun updateFpsLimit(limit: Int) {
+        fpsLimit = limit
+    }
 
     private val offscreenBitmap: Bitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
     private val offscreenCanvas: android.graphics.Canvas = android.graphics.Canvas(offscreenBitmap)
     private val j2meGraphics: javax.microedition.lcdui.Graphics = javax.microedition.lcdui.Graphics()
     private val destRect = android.graphics.Rect()
+
+    // Paint used to blit the framebuffer onto the view. isFilterBitmap toggles
+    // bilinear smoothing (true) vs nearest-neighbor crisp pixels (false).
+    private val scalePaint = android.graphics.Paint().apply { isFilterBitmap = initialSmoothScaling }
+
+    /** Apply scale mode / smoothing changes live (e.g. from the in-game Quick Menu). */
+    fun updateDisplaySettings(scaleMode: String, smoothScaling: Boolean) {
+        this.scaleMode = scaleMode
+        scalePaint.isFilterBitmap = smoothScaling
+        postInvalidate()
+    }
 
     // Render thread state
     @Volatile private var renderRunning = true
@@ -1064,6 +1269,26 @@ class J2meGameView(
 
     // Real FPS measured by the render thread (updated once per second)
     @Volatile var currentFps: Int = 0
+
+    // Guard so the library thumbnail is only written once per view.
+    @Volatile private var thumbnailCaptured = false
+
+    /** Copy the current framebuffer and persist it as this game's library thumbnail. */
+    private fun captureThumbnail() {
+        if (gameId.isEmpty()) return
+        val snapshot = synchronized(bitmapLock) {
+            offscreenBitmap.copy(Bitmap.Config.ARGB_8888, false)
+        }
+        try {
+            java.io.FileOutputStream(Thumbnails.file(context, gameId)).use { out ->
+                snapshot.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("J2ME-Render", "thumbnail capture failed: ${e.message}")
+        } finally {
+            snapshot.recycle()
+        }
+    }
 
     init {
         j2meCanvas.setRepaintListener(object : J2meCanvas.RepaintListener {
@@ -1097,8 +1322,23 @@ class J2meGameView(
             var backoffMs = 100L
             var consecutiveFailures = 0
             var frameCount = 0
+            var totalFrames = 0
             var lastFpsMs = System.currentTimeMillis()
+            var lastFrameStartMs = 0L
             while (renderRunning) {
+                // FPS limiter: hold back the next frame until the minimum
+                // inter-frame interval has elapsed (0 == unlimited). Interrupts
+                // (used to wake on repaint) are swallowed so the cap still holds.
+                val limit = fpsLimit
+                if (limit > 0 && lastFrameStartMs != 0L) {
+                    val minIntervalMs = 1000L / limit
+                    var remaining = minIntervalMs - (System.currentTimeMillis() - lastFrameStartMs)
+                    while (renderRunning && remaining > 0) {
+                        try { Thread.sleep(remaining) } catch (_: InterruptedException) {}
+                        remaining = minIntervalMs - (System.currentTimeMillis() - lastFrameStartMs)
+                    }
+                }
+                lastFrameStartMs = System.currentTimeMillis()
                 try {
                     synchronized(bitmapLock) {
                         j2meCanvas.paint(j2meGraphics)
@@ -1111,6 +1351,13 @@ class J2meGameView(
                     consecutiveFailures = 0
                     // FPS counting
                     frameCount++
+                    totalFrames++
+                    // Capture the library thumbnail once the game has drawn a few
+                    // frames (skips the initial blank/splash frame).
+                    if (!thumbnailCaptured && totalFrames >= 8) {
+                        thumbnailCaptured = true
+                        captureThumbnail()
+                    }
                     val nowMs = System.currentTimeMillis()
                     if (nowMs - lastFpsMs >= 1000L) {
                         currentFps = frameCount
@@ -1166,12 +1413,12 @@ class J2meGameView(
             when (scaleMode) {
                 "STRETCH" -> {
                     destRect.set(0, 0, width, height)
-                    canvas.drawBitmap(offscreenBitmap, null, destRect, null)
+                    canvas.drawBitmap(offscreenBitmap, null, destRect, scalePaint)
                 }
                 "ORIGINAL" -> {
                     val left = ((width - targetW) / 2).toFloat()
                     val top = ((height - targetH) / 2).toFloat()
-                    canvas.drawBitmap(offscreenBitmap, left, top, null)
+                    canvas.drawBitmap(offscreenBitmap, left, top, scalePaint)
                 }
                 "FIT" -> {
                     val scale = Math.min(viewW / targetW, viewH / targetH)
@@ -1180,7 +1427,7 @@ class J2meGameView(
                     val left = (width - destW) / 2
                     val top = (height - destH) / 2
                     destRect.set(left, top, left + destW, top + destH)
-                    canvas.drawBitmap(offscreenBitmap, null, destRect, null)
+                    canvas.drawBitmap(offscreenBitmap, null, destRect, scalePaint)
                 }
             }
         }
@@ -1232,6 +1479,9 @@ class J2meGameView(
 fun LandscapeEmulatorContent(
     canvas: J2meCanvas,
     game: GameModel,
+    scaleMode: String,
+    smoothScaling: Boolean,
+    fpsLimit: Int,
     activeAnalogKey: Int,
     onKeyChanged: (Int) -> Unit,
     gameFps: Int = 0,
@@ -1374,8 +1624,15 @@ fun LandscapeEmulatorContent(
                                 j2meCanvas = canvas,
                                 targetW = game.targetWidth,
                                 targetH = game.targetHeight,
-                                scaleMode = game.scaleMode
+                                initialScaleMode = game.scaleMode,
+                                initialSmoothScaling = game.smoothScaling,
+                                gameId = game.id,
+                                initialFpsLimit = fpsLimit
                             ).also { onFpsUpdate(it) }
+                        },
+                        update = {
+                            it.updateDisplaySettings(scaleMode, smoothScaling)
+                            it.updateFpsLimit(fpsLimit)
                         },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -1441,6 +1698,13 @@ fun LandscapeEmulatorContent(
 
 @Composable
 fun QuickMenuOverlay(
+    scaleMode: String,
+    smoothScaling: Boolean,
+    fpsLimit: Int,
+    onScaleModeChange: (String) -> Unit,
+    onSmoothScalingChange: (Boolean) -> Unit,
+    onFpsLimitChange: (Int) -> Unit,
+    onEditLayout: () -> Unit,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
     onExit: () -> Unit
@@ -1478,11 +1742,96 @@ fun QuickMenuOverlay(
                     color = MaterialTheme.colorScheme.primary
                 )
 
+                // ── Display settings ─────────────────────────────────────────
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Skala Tampilan",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("FIT", "STRETCH", "ORIGINAL").forEach { mode ->
+                            FilterChip(
+                                selected = scaleMode == mode,
+                                onClick = { onScaleModeChange(mode) },
+                                label = { Text(mode, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Penghalusan",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                            Text(
+                                if (smoothScaling) "Halus (bilinear)" else "Tajam (nearest)",
+                                fontSize = 10.sp,
+                                fontFamily = ShareTechMonoFont,
+                                color = Color.White.copy(alpha = 0.5f)
+                            )
+                        }
+                        Switch(
+                            checked = smoothScaling,
+                            onCheckedChange = { onSmoothScalingChange(it) }
+                        )
+                    }
+
+                    Text(
+                        "Batas FPS",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // 0 == unlimited; remaining values cap the render thread.
+                        listOf(0 to "Off", 60 to "60", 30 to "30", 15 to "15").forEach { (value, label) ->
+                            FilterChip(
+                                selected = fpsLimit == value,
+                                onClick = { onFpsLimitChange(value) },
+                                label = { Text(label, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Kembali Bermain")
+                }
+
+                OutlinedButton(
+                    onClick = onEditLayout,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.OpenWith,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Edit Tata Letak")
                 }
 
                 OutlinedButton(
@@ -1502,6 +1851,20 @@ fun QuickMenuOverlay(
             }
         }
     }
+}
+
+// Persist the live display settings to the per-game settings store, preserving
+// any other stored fields (the in-memory GameModel here is built from a partial
+// set of Intent extras, so it is only used to seed defaults on first write).
+private fun persistDisplaySettings(
+    context: Context,
+    game: GameModel,
+    scaleMode: String,
+    smoothScaling: Boolean
+) {
+    val store = GameSettingsStore(context)
+    val current = store.load(game.id) ?: GameSettings.fromGameModel(game)
+    store.save(game.id, current.copy(scaleMode = scaleMode, smoothScaling = smoothScaling))
 }
 
 private fun Context.currentView(): View? {

@@ -44,6 +44,9 @@ import coil.compose.AsyncImage
 import com.emulator.j2me.core.DexTranslator
 import com.emulator.j2me.data.GameDatabase
 import com.emulator.j2me.data.GameModel
+import com.emulator.j2me.data.GameSettings
+import com.emulator.j2me.data.GameSettingsStore
+import com.emulator.j2me.data.Thumbnails
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -91,6 +94,7 @@ fun MainScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { GameDatabase(context) }
+    val settingsStore = remember { GameSettingsStore(context) }
     
     var gamesList by remember { mutableStateOf(emptyList<GameModel>()) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -189,8 +193,10 @@ fun MainScreen() {
 
             // Game details sheet dialog
             activeGameForDetail?.let { game ->
+                val settings = remember(game.id) { settingsStore.loadOrDefault(game) }
                 GameDetailDialog(
                     game = game,
+                    settings = settings,
                     onDismiss = { activeGameForDetail = null },
                     onLaunch = { 
                         activeGameForDetail = null
@@ -198,17 +204,18 @@ fun MainScreen() {
                     },
                     onDelete = {
                         db.removeGame(game.id)
+                        settingsStore.remove(game.id)
                         // Delete files
                         File(game.jarPath).delete()
                         File(game.dexPath).delete()
                         game.iconPath?.let { File(it).delete() }
+                        Thumbnails.file(context, game.id).delete()
                         gamesList = db.loadGames()
                         activeGameForDetail = null
                         Toast.makeText(context, "Game dihapus", Toast.LENGTH_SHORT).show()
                     },
-                    onSaveSettings = { updatedGame ->
-                        db.updateGame(updatedGame)
-                        gamesList = db.loadGames()
+                    onSaveSettings = { updatedSettings ->
+                        settingsStore.save(game.id, updatedSettings)
                         activeGameForDetail = null
                     }
                 )
@@ -344,16 +351,27 @@ fun GameCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            val context = LocalContext.current
+            // Prefer the gameplay thumbnail (captured on first frame); fall back to
+            // the JAR icon, then a generic placeholder.
+            val previewModel = remember(game.id) {
+                val thumb = Thumbnails.file(context, game.id)
+                when {
+                    thumb.exists() -> thumb
+                    game.iconPath != null -> File(game.iconPath)
+                    else -> null
+                }
+            }
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(width = 84.dp, height = 108.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF2E2E2E)),
                 contentAlignment = Alignment.Center
             ) {
-                if (game.iconPath != null) {
+                if (previewModel != null) {
                     AsyncImage(
-                        model = File(game.iconPath),
+                        model = previewModel,
                         contentDescription = game.name,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
@@ -411,15 +429,17 @@ fun GameCard(
 @Composable
 fun GameDetailDialog(
     game: GameModel,
+    settings: GameSettings,
     onDismiss: () -> Unit,
     onLaunch: () -> Unit,
     onDelete: () -> Unit,
-    onSaveSettings: (GameModel) -> Unit
+    onSaveSettings: (GameSettings) -> Unit
 ) {
-    var widthText by remember { mutableStateOf(game.targetWidth.toString()) }
-    var heightText by remember { mutableStateOf(game.targetHeight.toString()) }
-    var scaleMode by remember { mutableStateOf(game.scaleMode) }
-    var opacity by remember { mutableFloatStateOf(game.keypadOpacity) }
+    var widthText by remember { mutableStateOf(settings.targetWidth.toString()) }
+    var heightText by remember { mutableStateOf(settings.targetHeight.toString()) }
+    var scaleMode by remember { mutableStateOf(settings.scaleMode) }
+    var smoothScaling by remember { mutableStateOf(settings.smoothScaling) }
+    var opacity by remember { mutableFloatStateOf(settings.keypadOpacity) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -509,6 +529,23 @@ fun GameDetailDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Penghalusan (Smoothing)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            if (smoothScaling) "Halus / bilinear" else "Tajam / nearest-neighbor",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                    Switch(checked = smoothScaling, onCheckedChange = { smoothScaling = it })
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Text("Transparansi Keypad: ${(opacity * 100).toInt()}%", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Slider(
                     value = opacity,
@@ -543,10 +580,11 @@ fun GameDetailDialog(
                             onClick = {
                                 val w = widthText.toIntOrNull() ?: 240
                                 val h = heightText.toIntOrNull() ?: 320
-                                onSaveSettings(game.copy(
+                                onSaveSettings(settings.copy(
                                     targetWidth = w,
                                     targetHeight = h,
                                     scaleMode = scaleMode,
+                                    smoothScaling = smoothScaling,
                                     keypadOpacity = opacity
                                 ))
                             }
@@ -655,16 +693,18 @@ fun AboutTab() {
 }
 
 private fun launchGame(context: Context, game: GameModel) {
+    val settings = GameSettingsStore(context).loadOrDefault(game)
     val intent = Intent(context, EmulatorActivity::class.java).apply {
         putExtra("GAME_ID", game.id)
         putExtra("GAME_NAME", game.name)
         putExtra("JAR_PATH", game.jarPath)
         putExtra("DEX_PATH", game.dexPath)
         putExtra("MAIN_CLASS", game.mainClass)
-        putExtra("TARGET_WIDTH", game.targetWidth)
-        putExtra("TARGET_HEIGHT", game.targetHeight)
-        putExtra("SCALE_MODE", game.scaleMode)
-        putExtra("OPACITY", game.keypadOpacity)
+        putExtra("TARGET_WIDTH", settings.targetWidth)
+        putExtra("TARGET_HEIGHT", settings.targetHeight)
+        putExtra("SCALE_MODE", settings.scaleMode)
+        putExtra("SMOOTH_SCALING", settings.smoothScaling)
+        putExtra("OPACITY", settings.keypadOpacity)
     }
     context.startActivity(intent)
 }
