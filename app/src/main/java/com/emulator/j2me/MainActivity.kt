@@ -21,8 +21,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -140,19 +139,19 @@ fun MainScreen() {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Filled.SportsEsports, contentDescription = "Games") },
+                    icon = { Icon(Icons.Filled.Gamepad, contentDescription = "Games") },
                     label = { Text("Games") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = "Settings") },
+                    icon = { Icon(Icons.Outlined.Settings, contentDescription = "Settings") },
                     label = { Text("Settings") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Filled.Info, contentDescription = "About") },
+                    icon = { Icon(Icons.Outlined.Info, contentDescription = "About") },
                     label = { Text("About") }
                 )
             }
@@ -164,7 +163,7 @@ fun MainScreen() {
                     containerColor = MaterialTheme.colorScheme.secondary,
                     shape = CircleShape
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = "Import Game", tint = Color.Black)
+                    Icon(Icons.Default.Add, contentDescription = "Import Game", tint = Color.Black)
                 }
             }
         }
@@ -289,7 +288,7 @@ fun GameLibraryTab(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        imageVector = Icons.Filled.SportsEsports,
+                        imageVector = Icons.Filled.Gamepad,
                         contentDescription = null,
                         modifier = Modifier.size(72.dp),
                         tint = MaterialTheme.colorScheme.outline
@@ -597,7 +596,7 @@ fun GameDetailDialog(
                         onClick = onDelete,
                         colors = IconButtonDefaults.iconButtonColors(contentColor = Color.Red)
                     ) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Delete Game")
+                        Icon(Icons.Default.Delete, contentDescription = "Delete Game")
                     }
  
                     Row {
@@ -684,7 +683,7 @@ fun AboutTab() {
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            imageVector = Icons.Filled.SportsEsports,
+            imageVector = Icons.Filled.Gamepad,
             contentDescription = null,
             modifier = Modifier.size(96.dp),
             tint = MaterialTheme.colorScheme.primary
