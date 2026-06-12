@@ -17,6 +17,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -234,6 +236,8 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                 scaleMode = scaleMode,
                 smoothScaling = smoothScaling,
                 fpsLimit = fpsLimit,
+                upscaler = upscaler,
+                controlType = controlType,
                 activeAnalogKey = activeAnalogKey,
                 onKeyChanged = { activeAnalogKey = it },
                 gameFps = gameFps,
@@ -341,12 +345,14 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                                 initialScaleMode = game.scaleMode,
                                 initialSmoothScaling = game.smoothScaling,
                                 gameId = game.id,
-                                initialFpsLimit = fpsLimit
+                                initialFpsLimit = fpsLimit,
+                                initialUpscaler = upscaler
                             ).also { gameViewRef = it }
                         },
                         update = {
                             it.updateDisplaySettings(scaleMode, smoothScaling)
                             it.updateFpsLimit(fpsLimit)
+                            it.updateUpscaler(upscaler)
                         },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -447,17 +453,25 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left: Analog Stick
+                    // Left: directional control — Analog Stick or D-Pad per setting
                     DraggableControl(
                         editMode = layoutEditMode,
                         offset = analogOffset,
                         onDrag = { analogOffset += it }
                     ) {
-                        AnalogStick(
-                            canvas = canvas,
-                            activeKey = activeAnalogKey,
-                            onKeyChanged = { activeAnalogKey = it }
-                        )
+                        if (controlType == "DPAD") {
+                            DPad(
+                                canvas = canvas,
+                                activeKey = activeAnalogKey,
+                                onKeyChanged = { activeAnalogKey = it }
+                            )
+                        } else {
+                            AnalogStick(
+                                canvas = canvas,
+                                activeKey = activeAnalogKey,
+                                onKeyChanged = { activeAnalogKey = it }
+                            )
+                        }
                     }
                     
                     // Middle: Real-time keypad feedback badge & 3x3 grid
@@ -467,7 +481,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                         modifier = Modifier.padding(horizontal = 4.dp)
                     ) {
                         Text(
-                            text = "ANALOG → KEY",
+                            text = if (controlType == "DPAD") "D-PAD → KEY" else "ANALOG → KEY",
                             color = Color.White.copy(alpha = 0.4f),
                             fontFamily = RajdhaniFont,
                             fontSize = 8.sp,
@@ -1090,7 +1104,124 @@ fun AnalogStick(
         }
     }
 }
- 
+
+// 8-direction on-screen D-Pad. Fires the same numpad direction keys as
+// AnalogStick (Up=2, Down=8, Left=4, Right=6, diagonals 1/3/7/9) so it works
+// wherever the analog stick does. Selected when controlType == "DPAD".
+@Composable
+fun DPad(
+    canvas: J2meCanvas,
+    activeKey: Int,
+    onKeyChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var lastSentKey by remember { mutableIntStateOf(-1) }
+
+    fun getCanvasKey(nokiaKey: Int): Int = when (nokiaKey) {
+        1 -> J2meCanvas.KEY_NUM1; 2 -> J2meCanvas.KEY_NUM2; 3 -> J2meCanvas.KEY_NUM3
+        4 -> J2meCanvas.KEY_NUM4; 6 -> J2meCanvas.KEY_NUM6
+        7 -> J2meCanvas.KEY_NUM7; 8 -> J2meCanvas.KEY_NUM8; 9 -> J2meCanvas.KEY_NUM9
+        else -> -1
+    }
+
+    fun directionFor(dx: Float, dy: Float, radius: Float): Int {
+        val dist = Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+        if (dist < radius * 0.30f) return 5
+        var angleDeg = Math.toDegrees(Math.atan2(dy.toDouble(), dx.toDouble()))
+        if (angleDeg < 0) angleDeg += 360.0
+        return when ((((angleDeg + 22.5) % 360.0) / 45.0).toInt()) {
+            0 -> 6; 1 -> 9; 2 -> 8; 3 -> 7; 4 -> 4; 5 -> 1; 6 -> 2; 7 -> 3; else -> 5
+        }
+    }
+
+    fun release() {
+        if (lastSentKey != -1) {
+            val ck = getCanvasKey(lastSentKey)
+            if (ck != -1) canvas.postKeyReleased(ck)
+            lastSentKey = -1
+        }
+        onKeyChanged(5)
+    }
+
+    fun update(nokiaKey: Int) {
+        onKeyChanged(nokiaKey)
+        val effectiveKey = if (nokiaKey == 5) -1 else nokiaKey
+        if (effectiveKey != lastSentKey) {
+            if (lastSentKey != -1) {
+                val ck = getCanvasKey(lastSentKey)
+                if (ck != -1) canvas.postKeyReleased(ck)
+            }
+            if (effectiveKey != -1) {
+                val ck = getCanvasKey(effectiveKey)
+                if (ck != -1) {
+                    context.currentView()?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    canvas.postKeyPressed(ck)
+                }
+            }
+            lastSentKey = effectiveKey
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .size(130.dp)
+            .pointerInput(Unit) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val radius = size.width / 2f
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
+                    update(directionFor(down.position.x - cx, down.position.y - cy, radius))
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        change.consume()
+                        update(directionFor(change.position.x - cx, change.position.y - cy, radius))
+                    }
+                    release()
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        val activeColor = Color(0xFF00E5A0)
+        val baseColor = Color(0xFF1E222F)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val arm = w * 0.30f          // half-length of the cross arms
+            val thick = w * 0.26f        // arm thickness
+            val cxp = w / 2f
+            val cyp = h / 2f
+            // Vertical bar (Up = 2, Down = 8)
+            drawRoundRect(
+                color = baseColor,
+                topLeft = Offset(cxp - thick / 2f, cyp - arm),
+                size = androidx.compose.ui.geometry.Size(thick, arm * 2),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f)
+            )
+            // Horizontal bar (Left = 4, Right = 6)
+            drawRoundRect(
+                color = baseColor,
+                topLeft = Offset(cxp - arm, cyp - thick / 2f),
+                size = androidx.compose.ui.geometry.Size(arm * 2, thick),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f)
+            )
+            // Highlight the pressed direction
+            val hl = 0.9f
+            if (activeKey == 2) drawRoundRect(activeColor.copy(alpha = hl), Offset(cxp - thick / 2f, cyp - arm), androidx.compose.ui.geometry.Size(thick, arm), cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f))
+            if (activeKey == 8) drawRoundRect(activeColor.copy(alpha = hl), Offset(cxp - thick / 2f, cyp), androidx.compose.ui.geometry.Size(thick, arm), cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f))
+            if (activeKey == 4) drawRoundRect(activeColor.copy(alpha = hl), Offset(cxp - arm, cyp - thick / 2f), androidx.compose.ui.geometry.Size(arm, thick), cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f))
+            if (activeKey == 6) drawRoundRect(activeColor.copy(alpha = hl), Offset(cxp, cyp - thick / 2f), androidx.compose.ui.geometry.Size(arm, thick), cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f))
+            // Center hub
+            drawCircle(color = Color(0xFF0F111A), radius = thick * 0.42f, center = Offset(cxp, cyp))
+            drawCircle(color = activeColor.copy(alpha = 0.3f), radius = thick * 0.42f, center = Offset(cxp, cyp), style = Stroke(width = 2f))
+        }
+    }
+}
+
 // 3x3 Mini Grid highlighting active direction
 @Composable
 fun MiniGrid3x3(activeKey: Int) {
@@ -1363,6 +1494,8 @@ class J2meGameView(
     /** Copy the current framebuffer and persist it as this game's library thumbnail. */
     private fun captureThumbnail() {
         if (gameId.isEmpty()) return
+        // Never overwrite a user-chosen custom thumbnail.
+        if (Thumbnails.hasCustom(context, gameId)) return
         val snapshot = synchronized(bitmapLock) {
             offscreenBitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
@@ -1578,6 +1711,8 @@ fun LandscapeEmulatorContent(
     scaleMode: String,
     smoothScaling: Boolean,
     fpsLimit: Int,
+    upscaler: String = "OFF",
+    controlType: String = "ANALOG",
     activeAnalogKey: Int,
     onKeyChanged: (Int) -> Unit,
     gameFps: Int = 0,
@@ -1656,14 +1791,18 @@ fun LandscapeEmulatorContent(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    "ANALOG → KEY",
+                    if (controlType == "DPAD") "D-PAD → KEY" else "ANALOG → KEY",
                     color = Color.White.copy(alpha = 0.35f),
                     fontFamily = RajdhaniFont,
                     fontWeight = FontWeight.Bold,
                     fontSize = 8.sp
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                AnalogStick(canvas = canvas, activeKey = activeAnalogKey, onKeyChanged = onKeyChanged)
+                if (controlType == "DPAD") {
+                    DPad(canvas = canvas, activeKey = activeAnalogKey, onKeyChanged = onKeyChanged)
+                } else {
+                    AnalogStick(canvas = canvas, activeKey = activeAnalogKey, onKeyChanged = onKeyChanged)
+                }
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1723,12 +1862,14 @@ fun LandscapeEmulatorContent(
                                 initialScaleMode = game.scaleMode,
                                 initialSmoothScaling = game.smoothScaling,
                                 gameId = game.id,
-                                initialFpsLimit = fpsLimit
+                                initialFpsLimit = fpsLimit,
+                                initialUpscaler = upscaler
                             ).also { onFpsUpdate(it) }
                         },
                         update = {
                             it.updateDisplaySettings(scaleMode, smoothScaling)
                             it.updateFpsLimit(fpsLimit)
+                            it.updateUpscaler(upscaler)
                         },
                         modifier = Modifier.fillMaxSize()
                     )

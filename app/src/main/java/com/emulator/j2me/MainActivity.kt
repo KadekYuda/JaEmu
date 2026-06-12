@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -99,6 +101,7 @@ fun MainScreen() {
     var gamesList by remember { mutableStateOf(emptyList<GameModel>()) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeGameForDetail by remember { mutableStateOf<GameModel?>(null) }
+    var thumbnailRefresh by remember { mutableIntStateOf(0) }
     var showImportDialog by remember { mutableStateOf(false) }
     var importStatus by remember { mutableStateOf("") }
     
@@ -184,6 +187,7 @@ fun MainScreen() {
             when (selectedTab) {
                 0 -> GameLibraryTab(
                     games = gamesList,
+                    refreshKey = thumbnailRefresh,
                     onGameClick = { activeGameForDetail = it },
                     onGameLaunch = { launchGame(context, it) }
                 )
@@ -197,6 +201,7 @@ fun MainScreen() {
                 GameDetailDialog(
                     game = game,
                     settings = settings,
+                    onThumbnailChanged = { thumbnailRefresh++ },
                     onDismiss = { activeGameForDetail = null },
                     onLaunch = { 
                         activeGameForDetail = null
@@ -209,7 +214,7 @@ fun MainScreen() {
                         File(game.jarPath).delete()
                         File(game.dexPath).delete()
                         game.iconPath?.let { File(it).delete() }
-                        Thumbnails.file(context, game.id).delete()
+                        Thumbnails.reset(context, game.id)
                         gamesList = db.loadGames()
                         activeGameForDetail = null
                         Toast.makeText(context, "Game dihapus", Toast.LENGTH_SHORT).show()
@@ -262,6 +267,7 @@ fun MainScreen() {
 @Composable
 fun GameLibraryTab(
     games: List<GameModel>,
+    refreshKey: Int = 0,
     onGameClick: (GameModel) -> Unit,
     onGameLaunch: (GameModel) -> Unit
 ) {
@@ -316,6 +322,7 @@ fun GameLibraryTab(
                 items(games) { game ->
                     GameCard(
                         game = game,
+                        refreshKey = refreshKey,
                         onClick = { onGameClick(game) },
                         onDoubleTap = { onGameLaunch(game) }
                     )
@@ -329,6 +336,7 @@ fun GameLibraryTab(
 @Composable
 fun GameCard(
     game: GameModel,
+    refreshKey: Int = 0,
     onClick: () -> Unit,
     onDoubleTap: () -> Unit
 ) {
@@ -337,7 +345,7 @@ fun GameCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.85f)
+            .aspectRatio(0.72f)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onClick,
@@ -349,22 +357,19 @@ fun GameCard(
                 .fillMaxSize()
                 .padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
         ) {
             val context = LocalContext.current
-            // Prefer the gameplay thumbnail (captured on first frame); fall back to
-            // the JAR icon, then a generic placeholder.
-            val previewModel = remember(game.id) {
-                val thumb = Thumbnails.file(context, game.id)
-                when {
-                    thumb.exists() -> thumb
-                    game.iconPath != null -> File(game.iconPath)
-                    else -> null
-                }
+            // Prefer custom thumbnail, then auto-captured gameplay frame, then the
+            // JAR icon. refreshKey forces a re-read after the user changes/resets
+            // the thumbnail from the detail dialog.
+            val previewModel = remember(game.id, refreshKey) {
+                Thumbnails.display(context, game.id)
+                    ?: game.iconPath?.let { File(it) }
             }
             Box(
                 modifier = Modifier
-                    .size(width = 84.dp, height = 108.dp)
+                    .size(width = 76.dp, height = 98.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF2E2E2E)),
                 contentAlignment = Alignment.Center
@@ -382,34 +387,6 @@ fun GameCard(
                         contentDescription = null,
                         modifier = Modifier.size(36.dp),
                         tint = MaterialTheme.colorScheme.secondary
-                    )
-                }
-                
-                // Change thumbnail button
-                var showImagePicker by remember { mutableStateOf(false) }
-                val imagePickerLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.GetContent()
-                ) { uri: Uri? ->
-                    uri?.let {
-                        context.contentResolver.openInputStream(it)?.use { input ->
-                            val outputFile = Thumbnails.file(context, game.id)
-                            input.copyTo(outputFile.outputStream())
-                        }
-                    }
-                }
-                
-                IconButton(
-                    onClick = { imagePickerLauncher.launch("image/*") },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(24.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = "Change thumbnail",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
@@ -439,7 +416,8 @@ fun GameCard(
             Spacer(modifier = Modifier.height(8.dp))
  
             Text(
-                text = "${"%.1f".format(game.sizeBytes / 1024.0 / 1024.0)} MB",
+                text = "${game.targetWidth}×${game.targetHeight}  •  ${"%.1f".format(game.sizeBytes / 1024.0 / 1024.0)} MB",
+                maxLines = 1,
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
@@ -458,16 +436,34 @@ fun GameCard(
 fun GameDetailDialog(
     game: GameModel,
     settings: GameSettings,
+    onThumbnailChanged: () -> Unit = {},
     onDismiss: () -> Unit,
     onLaunch: () -> Unit,
     onDelete: () -> Unit,
     onSaveSettings: (GameSettings) -> Unit
 ) {
+    val context = LocalContext.current
     var widthText by remember { mutableStateOf(settings.targetWidth.toString()) }
     var heightText by remember { mutableStateOf(settings.targetHeight.toString()) }
     var scaleMode by remember { mutableStateOf(settings.scaleMode) }
     var smoothScaling by remember { mutableStateOf(settings.smoothScaling) }
     var opacity by remember { mutableFloatStateOf(settings.keypadOpacity) }
+    var controlType by remember { mutableStateOf(settings.controlType) }
+    var upscaler by remember { mutableStateOf(settings.upscaler) }
+    // Bumped whenever the user changes/resets the thumbnail so the header preview re-reads.
+    var thumbVersion by remember { mutableIntStateOf(0) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            context.contentResolver.openInputStream(it)?.use { input ->
+                Thumbnails.customFile(context, game.id).outputStream().use { out -> input.copyTo(out) }
+            }
+            thumbVersion++
+            onThumbnailChanged()
+        }
+    }
  
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -480,23 +476,29 @@ fun GameDetailDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp)
             ) {
-                // Header
+                // Header — thumbnail with edit overlay, title, and a reset button.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    val headerPreview = remember(game.id, thumbVersion) {
+                        Thumbnails.display(context, game.id)
+                            ?: game.iconPath?.let { File(it) }
+                    }
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(56.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF2E2E2E)),
+                            .background(Color(0xFF2E2E2E))
+                            .clickable { imagePickerLauncher.launch("image/*") },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (game.iconPath != null) {
+                        if (headerPreview != null) {
                             AsyncImage(
-                                model = File(game.iconPath),
+                                model = headerPreview,
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -508,6 +510,29 @@ fun GameDetailDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(game.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Text("${game.vendor} • v${game.version}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                    }
+                    // Edit thumbnail (pencil) next to the title.
+                    IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
+                        Icon(
+                            Icons.Filled.Edit,
+                            contentDescription = "Ganti thumbnail",
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    // Reset thumbnail back to the original game image.
+                    IconButton(
+                        onClick = {
+                            Thumbnails.reset(context, game.id)
+                            thumbVersion++
+                            onThumbnailChanged()
+                        },
+                        enabled = Thumbnails.hasCustom(context, game.id)
+                    ) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = "Reset thumbnail",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
                     }
                 }
  
@@ -574,6 +599,56 @@ fun GameDetailDialog(
  
                 Spacer(modifier = Modifier.height(8.dp))
  
+                // Directional control: analog stick vs D-pad
+                Text("Kontrol Arah (Kiri)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("ANALOG" to "Analog", "DPAD" to "D-Pad").forEach { (value, label) ->
+                        FilterChip(
+                            selected = controlType == value,
+                            onClick = { controlType = value },
+                            label = { Text(label) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Image enhancement / upscaler
+                Text("Peningkatan Gambar (Upscaler)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("OFF" to "Off", "RESOLUTION" to "Resolusi", "HQ2X" to "HQ2x", "AI" to "AI").forEach { (value, label) ->
+                        FilterChip(
+                            selected = upscaler == value,
+                            onClick = { upscaler = value },
+                            label = { Text(label) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                Text(
+                    text = when (upscaler) {
+                        "RESOLUTION" -> "Bilinear sharpen — penghalusan resolusi."
+                        "HQ2X" -> "Shader pixel-art (Scale2x) — tepi tajam."
+                        "AI" -> "Hibrida Scale2x + bilinear (bukan ESRGAN; AI nyata terlalu berat real-time di HP)."
+                        else -> "Tanpa peningkatan (nearest-neighbor)."
+                    },
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Text("Transparansi Keypad: ${(opacity * 100).toInt()}%", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Slider(
                     value = opacity,
@@ -613,7 +688,9 @@ fun GameDetailDialog(
                                     targetHeight = h,
                                     scaleMode = scaleMode,
                                     smoothScaling = smoothScaling,
-                                    keypadOpacity = opacity
+                                    keypadOpacity = opacity,
+                                    controlType = controlType,
+                                    upscaler = upscaler
                                 ))
                             }
                         ) {
