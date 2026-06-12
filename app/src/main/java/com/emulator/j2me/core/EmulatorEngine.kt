@@ -330,7 +330,7 @@ object EmulatorEngine {
                 // Ensure a patched DEX exists (transforms Class.getResourceAsStream
                 // call-sites so they route through J2meResourceProxy instead of
                 // the BootClassLoader which cannot find JAR assets on Android).
-                val activeDexPath = ensurePatchedDex(game, codeCacheDir)
+                val activeDexPath = ensurePatchedDex(context, game, codeCacheDir)
 
                 val cl = J2meClassLoader(activeDexPath, codeCacheDir.absolutePath, context.classLoader)
                 classLoader = cl
@@ -471,7 +471,7 @@ object EmulatorEngine {
      * The patched DEX is cached next to the original as `classes_patched.dex`.
      * If patching or compilation fails, falls back to the original DEX path.
      */
-    private fun ensurePatchedDex(game: GameModel, codeCacheDir: File): String {
+    private fun ensurePatchedDex(context: Context, game: GameModel, codeCacheDir: File): String {
         val origDex = File(game.dexPath)
         val patchedDex = File(origDex.parent, "classes_patched.dex")
 
@@ -482,15 +482,38 @@ object EmulatorEngine {
 
         Log.d("EmulatorEngine", "Building patched DEX for ${game.name}...")
         val tempJar = File(codeCacheDir, "j2me_patching_${game.id}.jar")
+        val nokiaApiJar = File(codeCacheDir, "nokia_api_${game.id}.jar")
+        val mergedJar = File(codeCacheDir, "j2me_merged_${game.id}.jar")
         return try {
+            // Create Nokia API stub JAR
+            if (!DexTranslator.createNokiaApiJar(context, nokiaApiJar)) {
+                Log.w("EmulatorEngine", "Nokia API JAR creation failed – continuing without it")
+            }
+
+            // Transform game JAR
             if (!JarTransformer.transformJar(File(game.jarPath), tempJar)) {
                 Log.w("EmulatorEngine", "JAR transform failed – using original DEX")
                 return game.dexPath
             }
 
-            if (!DexTranslator.translateJarToDex(tempJar, patchedDex)) {
-                Log.w("EmulatorEngine", "Patched DEX compilation failed – using original DEX")
-                return game.dexPath
+            // Merge game JAR with Nokia API JAR
+            val jarsToMerge = mutableListOf(tempJar)
+            if (nokiaApiJar.exists()) {
+                jarsToMerge.add(nokiaApiJar)
+            }
+            
+            if (!DexTranslator.mergeJars(jarsToMerge, mergedJar)) {
+                Log.w("EmulatorEngine", "JAR merge failed – using transformed JAR only")
+                if (!DexTranslator.translateJarToDex(tempJar, patchedDex)) {
+                    Log.w("EmulatorEngine", "Patched DEX compilation failed – using original DEX")
+                    return game.dexPath
+                }
+            } else {
+                // Convert merged JAR to DEX
+                if (!DexTranslator.translateJarToDex(mergedJar, patchedDex)) {
+                    Log.w("EmulatorEngine", "Merged DEX compilation failed – using original DEX")
+                    return game.dexPath
+                }
             }
 
             patchedDex.setReadOnly()
@@ -501,6 +524,8 @@ object EmulatorEngine {
             game.dexPath
         } finally {
             tempJar.delete()
+            nokiaApiJar.delete()
+            mergedJar.delete()
         }
     }
 

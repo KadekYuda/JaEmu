@@ -1,8 +1,8 @@
 package com.emulator.j2me.data
-
+ 
 import android.content.Context
 import com.google.gson.Gson
-
+ 
 /**
  * Per-game on-screen control offsets (in pixels) from each cluster's default
  * position, applied when the player customizes the button layout. Null/zero
@@ -16,7 +16,7 @@ data class ButtonLayout(
     var softkeysDx: Float = 0f,
     var softkeysDy: Float = 0f
 )
-
+ 
 /** Per-game tunable settings, persisted independently of the game library entry. */
 data class GameSettings(
     var targetWidth: Int = 240,
@@ -28,7 +28,15 @@ data class GameSettings(
     // stored JSON that predates layout customization).
     var buttonLayout: ButtonLayout? = null,
     // Max render frames per second; 0 means unlimited (the previous behavior).
-    var fpsLimit: Int = 0
+    var fpsLimit: Int = 0,
+    // Primary directional control on the left: "ANALOG" stick or "DPAD" buttons.
+    var controlType: String = "ANALOG",
+    // Image enhancement applied when blitting the framebuffer:
+    //   "OFF"        – no enhancement (respects the smoothing toggle)
+    //   "RESOLUTION" – high-quality bilinear resolution scaling (sharpen)
+    //   "HQ2X"       – pixel-art shader upscaler (Scale2x/EPX family)
+    //   "AI"         – experimental AI-style scaling (Scale2x + bilinear)
+    var upscaler: String = "OFF"
 ) {
     companion object {
         fun fromGameModel(game: GameModel) = GameSettings(
@@ -40,12 +48,12 @@ data class GameSettings(
         )
     }
 }
-
+ 
 /** SharedPreferences-backed store keyed by game ID, serializing [GameSettings] as JSON. */
 class GameSettingsStore(context: Context) {
     private val gson = Gson()
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
+ 
     fun load(gameId: String): GameSettings? {
         val json = prefs.getString(gameId, null) ?: return null
         return try {
@@ -55,19 +63,19 @@ class GameSettingsStore(context: Context) {
             null
         }
     }
-
+ 
     /** Stored settings for the game, or settings seeded from its legacy [GameModel] fields. */
     fun loadOrDefault(game: GameModel): GameSettings =
         load(game.id) ?: GameSettings.fromGameModel(game)
-
+ 
     fun save(gameId: String, settings: GameSettings) {
         prefs.edit().putString(gameId, gson.toJson(settings)).apply()
     }
-
+ 
     fun remove(gameId: String) {
         prefs.edit().remove(gameId).apply()
     }
-
+ 
     companion object {
         private const val PREFS_NAME = "game_settings"
     }

@@ -21,7 +21,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -54,7 +55,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import java.util.zip.ZipFile
-
+ 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,7 +66,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
+ 
 // A beautiful Dark Cyberpunk/Retro Theme using Material 3
 @Composable
 fun J2meEmulatorTheme(content: @Composable () -> Unit) {
@@ -81,14 +82,14 @@ fun J2meEmulatorTheme(content: @Composable () -> Unit) {
         surfaceVariant = Color(0xFF2C2C2C),
         outline = Color(0xFF3E3E3E)
     )
-
+ 
     MaterialTheme(
         colorScheme = darkColorScheme,
         typography = Typography(),
         content = content
     )
 }
-
+ 
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
@@ -106,7 +107,7 @@ fun MainScreen() {
     LaunchedEffect(Unit) {
         gamesList = db.loadGames()
     }
-
+ 
     val pickJarLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -129,7 +130,7 @@ fun MainScreen() {
             }
         }
     }
-
+ 
     Scaffold(
         bottomBar = {
             NavigationBar(
@@ -190,7 +191,7 @@ fun MainScreen() {
                 1 -> GlobalSettingsTab()
                 2 -> AboutTab()
             }
-
+ 
             // Game details sheet dialog
             activeGameForDetail?.let { game ->
                 val settings = remember(game.id) { settingsStore.loadOrDefault(game) }
@@ -220,7 +221,7 @@ fun MainScreen() {
                     }
                 )
             }
-
+ 
             // Import progress dialog
             if (showImportDialog) {
                 Dialog(onDismissRequest = {}) {
@@ -258,7 +259,7 @@ fun MainScreen() {
         }
     }
 }
-
+ 
 @Composable
 fun GameLibraryTab(
     games: List<GameModel>,
@@ -278,7 +279,7 @@ fun GameLibraryTab(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 16.dp)
         )
-
+ 
         if (games.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -324,7 +325,7 @@ fun GameLibraryTab(
         }
     }
 }
-
+ 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GameCard(
@@ -384,10 +385,38 @@ fun GameCard(
                         tint = MaterialTheme.colorScheme.secondary
                     )
                 }
+                
+                // Change thumbnail button
+                var showImagePicker by remember { mutableStateOf(false) }
+                val imagePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent()
+                ) { uri: Uri? ->
+                    uri?.let {
+                        context.contentResolver.openInputStream(it)?.use { input ->
+                            val outputFile = Thumbnails.file(context, game.id)
+                            input.copyTo(outputFile.outputStream())
+                        }
+                    }
+                }
+                
+                IconButton(
+                    onClick = { imagePickerLauncher.launch("image/*") },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(24.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "Change thumbnail",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
-
+ 
             Spacer(modifier = Modifier.height(12.dp))
-
+ 
             Text(
                 text = game.name,
                 fontWeight = FontWeight.Bold,
@@ -397,7 +426,7 @@ fun GameCard(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-
+ 
             Text(
                 text = game.vendor,
                 fontSize = 12.sp,
@@ -407,9 +436,9 @@ fun GameCard(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-
+ 
             Spacer(modifier = Modifier.height(8.dp))
-
+ 
             Text(
                 text = "${"%.1f".format(game.sizeBytes / 1024.0 / 1024.0)} MB",
                 fontSize = 10.sp,
@@ -425,7 +454,7 @@ fun GameCard(
         }
     }
 }
-
+ 
 @Composable
 fun GameDetailDialog(
     game: GameModel,
@@ -440,10 +469,10 @@ fun GameDetailDialog(
     var scaleMode by remember { mutableStateOf(settings.scaleMode) }
     var smoothScaling by remember { mutableStateOf(settings.smoothScaling) }
     var opacity by remember { mutableFloatStateOf(settings.keypadOpacity) }
-
+ 
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            shape = RoundedCornerShape(16.dp),
+             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             modifier = Modifier
                 .fillMaxWidth()
@@ -482,11 +511,11 @@ fun GameDetailDialog(
                         Text("${game.vendor} • v${game.version}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                     }
                 }
-
+ 
                 Spacer(modifier = Modifier.height(16.dp))
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(16.dp))
-
+ 
                 // Settings
                 Text("Resolusi Canvas Game", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(8.dp))
@@ -507,9 +536,9 @@ fun GameDetailDialog(
                         singleLine = true
                     )
                 }
-
+ 
                 Spacer(modifier = Modifier.height(16.dp))
-
+ 
                 Text("Skala Tampilan", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Row(
                     modifier = Modifier
@@ -526,9 +555,9 @@ fun GameDetailDialog(
                         )
                     }
                 }
-
+ 
                 Spacer(modifier = Modifier.height(8.dp))
-
+ 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -543,9 +572,9 @@ fun GameDetailDialog(
                     }
                     Switch(checked = smoothScaling, onCheckedChange = { smoothScaling = it })
                 }
-
+ 
                 Spacer(modifier = Modifier.height(8.dp))
-
+ 
                 Text("Transparansi Keypad: ${(opacity * 100).toInt()}%", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Slider(
                     value = opacity,
@@ -556,9 +585,9 @@ fun GameDetailDialog(
                         activeTrackColor = MaterialTheme.colorScheme.secondary
                     )
                 )
-
+ 
                 Spacer(modifier = Modifier.height(16.dp))
-
+ 
                 // Actions
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -570,7 +599,7 @@ fun GameDetailDialog(
                     ) {
                         Icon(Icons.Filled.Delete, contentDescription = "Delete Game")
                     }
-
+ 
                     Row {
                         TextButton(onClick = onDismiss) {
                             Text("Batal")
@@ -604,7 +633,7 @@ fun GameDetailDialog(
         }
     }
 }
-
+ 
 @Composable
 fun GlobalSettingsTab() {
     Column(
@@ -620,7 +649,7 @@ fun GlobalSettingsTab() {
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 24.dp)
         )
-
+ 
         Card(
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -644,7 +673,7 @@ fun GlobalSettingsTab() {
         }
     }
 }
-
+ 
 @Composable
 fun AboutTab() {
     Column(
@@ -691,7 +720,7 @@ fun AboutTab() {
         }
     }
 }
-
+ 
 private fun launchGame(context: Context, game: GameModel) {
     val settings = GameSettingsStore(context).loadOrDefault(game)
     val intent = Intent(context, EmulatorActivity::class.java).apply {
@@ -708,7 +737,7 @@ private fun launchGame(context: Context, game: GameModel) {
     }
     context.startActivity(intent)
 }
-
+ 
 // Thread-safe copy & translate task
 private suspend fun importJar(
     context: Context,
@@ -729,7 +758,7 @@ private suspend fun importJar(
                 input.copyTo(output)
             }
         } ?: throw Exception("Gagal membuka file stream")
-
+ 
         // Parse Manifest
         onProgress("Menganalisis file MANIFEST...")
         var gameName = ""
@@ -737,7 +766,7 @@ private suspend fun importJar(
         var gameVersion = "1.0.0"
         var mainClass = ""
         var iconName: String? = null
-
+ 
         ZipFile(jarFile).use { zip ->
             val manifestEntry = zip.getEntry("META-INF/MANIFEST.MF")
                 ?: throw Exception("File ini bukan game J2ME (MANIFEST.MF tidak ditemukan)")
@@ -803,7 +832,7 @@ private suspend fun importJar(
                 }
             }
         }
-
+ 
         if (gameName.isEmpty()) {
             // Fallback to filename
             gameName = File(uri.path ?: "Game").nameWithoutExtension
@@ -811,7 +840,7 @@ private suspend fun importJar(
         if (mainClass.isEmpty()) {
             throw Exception("MIDlet main class tidak ditemukan di MANIFEST.MF")
         }
-
+ 
         // Translate J2ME JAR bytecode to Android DEX bytecode
         onProgress("Menerjemahkan bytecode J2ME ke Android DEX (ini butuh beberapa detik)...")
         val dexFile = File(gameDir, "classes.dex")
@@ -820,12 +849,12 @@ private suspend fun importJar(
         if (!translationSuccess) {
             throw Exception("Gagal mengompilasi bytecode ke DEX format")
         }
-
+ 
         // Make dex file read-only for Android 14+ security compliance
         dexFile.setReadOnly()
         // Make JAR read-only so DexClassLoader injection succeeds on Android 14+
         jarFile.setReadOnly()
-
+ 
         // Save metadata
         val iconFile = File(gameDir, "icon.png")
         val finalIconPath = if (iconFile.exists()) iconFile.absolutePath else null
@@ -841,7 +870,7 @@ private suspend fun importJar(
             iconPath = finalIconPath,
             sizeBytes = jarFile.length()
         )
-
+ 
         db.addGame(newGame)
         
         withContext(Dispatchers.Main) {

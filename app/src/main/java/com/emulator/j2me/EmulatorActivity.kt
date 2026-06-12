@@ -60,9 +60,9 @@ import androidx.activity.OnBackPressedCallback
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-
+ 
 class EmulatorActivity : ComponentActivity() {
-
+ 
     private var targetWidth = 240
     private var targetHeight = 320
     private var scaleMode = "FIT"
@@ -70,13 +70,13 @@ class EmulatorActivity : ComponentActivity() {
     private var opacity = 0.6f
     // Incremented each time the back gesture fires; observed by EmulatorScreen to open the menu
     private var externalMenuTrigger by mutableIntStateOf(0)
-
+ 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         // Keep screen on during gameplay
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
+ 
         val gameId = intent.getStringExtra("GAME_ID") ?: ""
         val gameName = intent.getStringExtra("GAME_NAME") ?: "Java Game"
         val jarPath = intent.getStringExtra("JAR_PATH") ?: ""
@@ -88,7 +88,7 @@ class EmulatorActivity : ComponentActivity() {
         scaleMode = intent.getStringExtra("SCALE_MODE") ?: "FIT"
         smoothScaling = intent.getBooleanExtra("SMOOTH_SCALING", false)
         opacity = intent.getFloatExtra("OPACITY", 0.6f)
-
+ 
         val game = GameModel(
             id = gameId,
             name = gameName,
@@ -105,29 +105,29 @@ class EmulatorActivity : ComponentActivity() {
             scaleMode = scaleMode,
             smoothScaling = smoothScaling
         )
-
+ 
         CrashLogger.install(this, game.name)
-
+ 
         // Intercept back gesture/button — open quick menu instead of immediately exiting.
         // This prevents the left-edge swipe (analog stick area) from accidentally closing the game.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { externalMenuTrigger++ }
         })
-
+ 
         setContent {
             J2meEmulatorTheme {
                 EmulatorScreen(game = game, onBack = { finish() }, externalMenuTrigger = externalMenuTrigger)
             }
         }
     }
-
+ 
     override fun onDestroy() {
         super.onDestroy()
         // Stop current game engine when closing activity
         EmulatorEngine.stopGame {}
     }
 }
-
+ 
 // Load typography fonts
 val RajdhaniFont = FontFamily(
     androidx.compose.ui.text.font.Font(R.font.rajdhani)
@@ -135,7 +135,7 @@ val RajdhaniFont = FontFamily(
 val ShareTechMonoFont = FontFamily(
     androidx.compose.ui.text.font.Font(R.font.share_tech_mono)
 )
-
+ 
 @Composable
 fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int = 0) {
     val context = LocalContext.current
@@ -144,12 +144,15 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var activeDisplayable by remember { mutableStateOf<Displayable?>(null) }
     var isMenuOpen by remember { mutableStateOf(false) }
     var gameStarted by remember { mutableStateOf(false) }
-
+ 
     // Live display settings, editable from the in-game Quick Menu.
     var scaleMode by remember { mutableStateOf(game.scaleMode) }
     var smoothScaling by remember { mutableStateOf(game.smoothScaling) }
     // Render FPS cap (0 == unlimited), editable from the in-game Quick Menu.
     var fpsLimit by remember { mutableIntStateOf(GameSettingsStore(context).load(game.id)?.fpsLimit ?: 0) }
+    // Control type and upscaler settings
+    var controlType by remember { mutableStateOf(GameSettingsStore(context).load(game.id)?.controlType ?: "ANALOG") }
+    var upscaler by remember { mutableStateOf(GameSettingsStore(context).load(game.id)?.upscaler ?: "OFF") }
     
     // Tracks active Nokia key value from analog stick (1 to 9, default 5)
     var activeAnalogKey by remember { mutableIntStateOf(5) }
@@ -159,7 +162,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var gameViewRef: J2meGameView? by remember { mutableStateOf(null) }
     // Scope for persisting settings off the main thread.
     val settingsScope = rememberCoroutineScope()
-
+ 
     // ── Button layout customization ──────────────────────────────────────────
     val settingsStore = remember { GameSettingsStore(context) }
     val initialLayout = remember { settingsStore.load(game.id)?.buttonLayout ?: ButtonLayout() }
@@ -167,7 +170,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
     var analogOffset by remember { mutableStateOf(Offset(initialLayout.analogDx, initialLayout.analogDy)) }
     var dpadOffset by remember { mutableStateOf(Offset(initialLayout.dpadDx, initialLayout.dpadDy)) }
     var softkeysOffset by remember { mutableStateOf(Offset(initialLayout.softkeysDx, initialLayout.softkeysDy)) }
-
+ 
     fun persistButtonLayout() {
         val snapshot = ButtonLayout(
             analogDx = analogOffset.x, analogDy = analogOffset.y,
@@ -180,7 +183,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             settingsStore.save(game.id, current)
         }
     }
-
+ 
     fun persistFpsLimit(limit: Int) {
         settingsScope.launch(Dispatchers.IO) {
             val current = settingsStore.load(game.id) ?: GameSettings.fromGameModel(game)
@@ -188,7 +191,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             settingsStore.save(game.id, current)
         }
     }
-
+ 
     // Poll the view's currentFps twice per second
     LaunchedEffect(gameViewRef) {
         while (gameViewRef != null) {
@@ -198,12 +201,12 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             if (gameFps != fps) gameFps = fps
         }
     }
-
+ 
     // Open quick menu when the back gesture/button fires from the Activity
     LaunchedEffect(externalMenuTrigger) {
         if (externalMenuTrigger > 0) isMenuOpen = true
     }
-
+ 
     // Start Emulator Engine when this screen loads
     LaunchedEffect(Unit) {
         EmulatorEngine.startGame(
@@ -218,7 +221,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
         )
         gameStarted = true
     }
-
+ 
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -314,9 +317,9 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     }
                 }
             }
-
+ 
             Spacer(modifier = Modifier.height(8.dp))
-
+ 
             // 2. Layar game — aspect ratio 4:3, efek scanline, FPS badge
             Box(
                 modifier = Modifier
@@ -347,7 +350,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                         },
                         modifier = Modifier.fillMaxSize()
                     )
-
+ 
                     // FPS Badge (Neon Green)
                     Box(
                         modifier = Modifier
@@ -383,9 +386,9 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     }
                 }
             }
-
+ 
             Spacer(modifier = Modifier.height(12.dp))
-
+ 
             // 3. Softkeys row: LSK | * | 0 | # | RSK
             if (activeDisplayable is J2meCanvas) {
                 val canvas = activeDisplayable as J2meCanvas
@@ -431,9 +434,9 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                 }
                 }
             }
-
+ 
             Spacer(modifier = Modifier.height(12.dp))
-
+ 
             // 4. Baris tengah: analog stick kiri + D-pad kanan + tombol A/B
             if (activeDisplayable is J2meCanvas) {
                 val canvas = activeDisplayable as J2meCanvas
@@ -500,7 +503,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                         // 3x3 Mini Grid
                         MiniGrid3x3(activeKey = activeAnalogKey)
                     }
-
+ 
                     // Right: D-pad + A/B Buttons
                     DraggableControl(
                         editMode = layoutEditMode,
@@ -534,9 +537,9 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     }
                 }
             }
-
+ 
             Spacer(modifier = Modifier.height(12.dp))
-
+ 
             // 5. Bottom bar — Load ROM, Save, Stop
             Row(
                 modifier = Modifier
@@ -572,7 +575,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
             }
         }
         } // end portrait else
-
+ 
         // Layout-edit banner: lets the player reset/finish repositioning controls.
         if (layoutEditMode) {
             Row(
@@ -609,13 +612,15 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                 }
             }
         }
-
+ 
         // Translucent Quick Menu Overlay
         if (isMenuOpen) {
             QuickMenuOverlay(
                 scaleMode = scaleMode,
                 smoothScaling = smoothScaling,
                 fpsLimit = fpsLimit,
+                controlType = controlType,
+                upscaler = upscaler,
                 onFpsLimitChange = { limit ->
                     fpsLimit = limit
                     persistFpsLimit(limit)
@@ -636,6 +641,18 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
                     game.smoothScaling = smooth
                     settingsScope.launch(Dispatchers.IO) {
                         persistDisplaySettings(context, game, scaleMode, smooth)
+                    }
+                },
+                onControlTypeChange = { type ->
+                    controlType = type
+                    settingsScope.launch(Dispatchers.IO) {
+                        persistControlSettings(context, game, type, upscaler)
+                    }
+                },
+                onUpscalerChange = { scaler ->
+                    upscaler = scaler
+                    settingsScope.launch(Dispatchers.IO) {
+                        persistControlSettings(context, game, controlType, scaler)
                     }
                 },
                 onDismiss = { isMenuOpen = false },
@@ -660,7 +677,7 @@ fun EmulatorScreen(game: GameModel, onBack: () -> Unit, externalMenuTrigger: Int
         }
     }
 }
-
+ 
 // Custom Outlined/Colored Circular Action Button (Purple/Orange)
 @Composable
 fun CircularActionButton(
@@ -706,7 +723,7 @@ fun CircularActionButton(
         )
     }
 }
-
+ 
 /**
  * Wraps an on-screen control cluster so it can be repositioned by the player.
  * The cluster is visually translated by [offset]. While [editMode] is on, a
@@ -740,7 +757,7 @@ fun DraggableControl(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
+                  Icon(
                     imageVector = Icons.Filled.OpenWith,
                     contentDescription = "Geser kontrol",
                     tint = Color(0xFF00E5A0),
@@ -827,7 +844,7 @@ fun GameDpad(
         }
     }
 }
-
+ 
 @Composable
 fun DpadDirectionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -869,7 +886,7 @@ fun DpadDirectionButton(
         )
     }
 }
-
+ 
 // Draggable 8-directional Analog Stick with Spring Animation
 @Composable
 fun AnalogStick(
@@ -925,15 +942,15 @@ fun AnalogStick(
             else -> 5
         }
     }
-
+ 
     fun updateKey(dx: Float, dy: Float) {
         val nokiaKey = getAnalogKey(dx, dy, dragRadiusPx)
         onKeyChanged(nokiaKey)  // visual feedback (mini grid shows 5 at center)
-
+ 
         // Treat center (5) as "no direction" — never fire KEY_NUM5 from the analog.
         // KEY_NUM5 maps to FIRE/SELECT in J2ME which opens context menus unintentionally.
         val effectiveKey = if (nokiaKey == 5) -1 else nokiaKey
-
+ 
         if (effectiveKey != lastSentKey) {
             // Release last directional key
             if (lastSentKey != -1) {
@@ -1073,7 +1090,7 @@ fun AnalogStick(
         }
     }
 }
-
+ 
 // 3x3 Mini Grid highlighting active direction
 @Composable
 fun MiniGrid3x3(activeKey: Int) {
@@ -1109,7 +1126,7 @@ fun MiniGrid3x3(activeKey: Int) {
         }
     }
 }
-
+ 
 // Wide SoftKey Button (LSK/RSK)
 @Composable
 fun SoftKeyButton(
@@ -1157,7 +1174,7 @@ fun SoftKeyButton(
         )
     }
 }
-
+ 
 // Action Button in Bottom Bar (Load ROM, Save, Stop)
 @Composable
 fun BottomButton(
@@ -1214,7 +1231,7 @@ fun BottomButton(
         }
     }
 }
-
+ 
 // Custom View wrapping the J2ME double-buffered paint Canvas
 class J2meGameView(
     context: Context,
@@ -1224,55 +1241,125 @@ class J2meGameView(
     initialScaleMode: String,
     initialSmoothScaling: Boolean = false,
     private val gameId: String = "",
-    initialFpsLimit: Int = 0
+    initialFpsLimit: Int = 0,
+    initialUpscaler: String = "OFF"
 ) : View(context) {
-
+ 
     @Volatile private var scaleMode: String = initialScaleMode
-
+ 
+    // Whether to bilinear-filter the blit (nearest-neighbor when false).
+    @Volatile private var smoothScaling: Boolean = initialSmoothScaling
+ 
+    // Image enhancement mode: OFF | RESOLUTION | HQ2X | AI. See GameSettings.
+    @Volatile private var upscaler: String = initialUpscaler
+ 
     // Max frames per second the render thread will produce; 0 == unlimited.
     @Volatile private var fpsLimit: Int = initialFpsLimit
-
+ 
     /** Update the render FPS cap live (e.g. from the in-game Quick Menu). */
     fun updateFpsLimit(limit: Int) {
         fpsLimit = limit
     }
-
+ 
+    /** Update the image-enhancement mode live. */
+    fun updateUpscaler(mode: String) {
+        upscaler = mode
+        postInvalidate()
+    }
+ 
     private val offscreenBitmap: Bitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
     private val offscreenCanvas: android.graphics.Canvas = android.graphics.Canvas(offscreenBitmap)
     private val j2meGraphics: javax.microedition.lcdui.Graphics = javax.microedition.lcdui.Graphics()
     private val destRect = android.graphics.Rect()
-
+ 
     // Paint used to blit the framebuffer onto the view. isFilterBitmap toggles
     // bilinear smoothing (true) vs nearest-neighbor crisp pixels (false).
     private val scalePaint = android.graphics.Paint().apply { isFilterBitmap = initialSmoothScaling }
-
+ 
+    // Pixel buffers + bitmap reused by the Scale2x upscaler (lazily allocated).
+    private var srcPixels: IntArray? = null
+    private var dstPixels: IntArray? = null
+    private var scaledBitmap: Bitmap? = null
+ 
     /** Apply scale mode / smoothing changes live (e.g. from the in-game Quick Menu). */
     fun updateDisplaySettings(scaleMode: String, smoothScaling: Boolean) {
         this.scaleMode = scaleMode
-        scalePaint.isFilterBitmap = smoothScaling
+        this.smoothScaling = smoothScaling
         postInvalidate()
     }
-
+ 
+    /**
+     * Returns the bitmap to blit for the current [upscaler] mode. HQ2X and AI
+     * pre-scale the framebuffer 2x with the Scale2x/EPX pixel-art algorithm into
+     * a reused bitmap; other modes blit the framebuffer directly. Must be called
+     * while holding [bitmapLock].
+     */
+    private fun resolveSourceBitmap(): Bitmap {
+        return when (upscaler) {
+            "HQ2X", "AI" -> scale2x() ?: offscreenBitmap
+            else -> offscreenBitmap
+        }
+    }
+ 
+    /** Whether the blit should bilinear-filter for the current mode. */
+    private fun effectiveFilter(): Boolean =
+        smoothScaling || upscaler == "RESOLUTION" || upscaler == "AI"
+ 
+    private fun scale2x(): Bitmap? {
+        val w = targetW
+        val h = targetH
+        if (w <= 0 || h <= 0) return null
+        val src = srcPixels ?: IntArray(w * h).also { srcPixels = it }
+        val dst = dstPixels ?: IntArray(w * h * 4).also { dstPixels = it }
+        val out = scaledBitmap
+            ?: Bitmap.createBitmap(w * 2, h * 2, Bitmap.Config.ARGB_8888).also { scaledBitmap = it }
+        offscreenBitmap.getPixels(src, 0, w, 0, 0, w, h)
+        val dw = w * 2
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                val p = src[row + x]
+                val up = if (y > 0) src[row - w + x] else p
+                val down = if (y < h - 1) src[row + w + x] else p
+                val left = if (x > 0) src[row + x - 1] else p
+                val right = if (x < w - 1) src[row + x + 1] else p
+                var e0 = p; var e1 = p; var e2 = p; var e3 = p
+                if (left == up && left != down && up != right) e0 = up
+                if (up == right && up != left && right != down) e1 = right
+                if (down == left && down != right && left != up) e2 = left
+                if (right == down && right != up && down != left) e3 = down
+                val dx = x * 2
+                val dRow = (y * 2) * dw + dx
+                dst[dRow] = e0
+                dst[dRow + 1] = e1
+                dst[dRow + dw] = e2
+                dst[dRow + dw + 1] = e3
+            }
+        }
+        out.setPixels(dst, 0, dw, 0, 0, dw, h * 2)
+        return out
+    }
+ 
     // Render thread state
     @Volatile private var renderRunning = true
     private var renderThread: Thread? = null
-
+ 
     // Track whether we have a valid frame to show
     @Volatile private var hasValidFrame = false
     @Volatile private var lastPaintSucceeded = false
-
+ 
     // Lock to protect offscreenBitmap access between render thread and UI thread
     private val bitmapLock = Any()
-
+ 
     // Latch that gates the render thread until the game calls repaint() for the first time
     private val firstRepaintLatch = CountDownLatch(1)
-
+ 
     // Real FPS measured by the render thread (updated once per second)
     @Volatile var currentFps: Int = 0
-
+ 
     // Guard so the library thumbnail is only written once per view.
     @Volatile private var thumbnailCaptured = false
-
+ 
     /** Copy the current framebuffer and persist it as this game's library thumbnail. */
     private fun captureThumbnail() {
         if (gameId.isEmpty()) return
@@ -1289,7 +1376,7 @@ class J2meGameView(
             snapshot.recycle()
         }
     }
-
+ 
     init {
         j2meCanvas.setRepaintListener(object : J2meCanvas.RepaintListener {
             override fun onRequestRepaint() {
@@ -1306,7 +1393,7 @@ class J2meGameView(
             }
         })
         j2meGraphics.setCanvas(offscreenCanvas)
-
+ 
         // Start dedicated render thread
         renderThread = Thread {
             // Wait for the game to signal it is ready (via first repaint() call).
@@ -1314,11 +1401,11 @@ class J2meGameView(
             try {
                 firstRepaintLatch.await(15, TimeUnit.SECONDS)
             } catch (_: InterruptedException) {}
-
+ 
             // Give the game a 500ms grace period after its first repaint() to
             // finish allocating internal buffers before we start calling paint().
             try { Thread.sleep(500) } catch (_: InterruptedException) {}
-
+ 
             var backoffMs = 100L
             var consecutiveFailures = 0
             var frameCount = 0
@@ -1390,35 +1477,44 @@ class J2meGameView(
             it.start()
         }
     }
-
+ 
     override fun onDetachedFromWindow() {
         renderRunning = false
         renderThread?.interrupt()
         super.onDetachedFromWindow()
     }
-
+ 
     override fun onDraw(canvas: android.graphics.Canvas) {
         super.onDraw(canvas)
-
+ 
         val viewW = width.toFloat()
         val viewH = height.toFloat()
         if (viewW <= 0 || viewH <= 0) return
-
+ 
         if (!hasValidFrame) {
             canvas.drawColor(android.graphics.Color.BLACK)
             return
         }
-
+ 
         synchronized(bitmapLock) {
+            scalePaint.isFilterBitmap = effectiveFilter()
+            // May be the framebuffer itself or a Scale2x-upscaled copy; drawBitmap
+            // maps the source rect onto the destination regardless of its size.
+            val src = resolveSourceBitmap()
             when (scaleMode) {
                 "STRETCH" -> {
                     destRect.set(0, 0, width, height)
-                    canvas.drawBitmap(offscreenBitmap, null, destRect, scalePaint)
+                    canvas.drawBitmap(src, null, destRect, scalePaint)
                 }
                 "ORIGINAL" -> {
                     val left = ((width - targetW) / 2).toFloat()
                     val top = ((height - targetH) / 2).toFloat()
-                    canvas.drawBitmap(offscreenBitmap, left, top, scalePaint)
+                    if (src === offscreenBitmap) {
+                        canvas.drawBitmap(src, left, top, scalePaint)
+                    } else {
+                        destRect.set(left.toInt(), top.toInt(), left.toInt() + targetW, top.toInt() + targetH)
+                        canvas.drawBitmap(src, null, destRect, scalePaint)
+                    }
                 }
                 "FIT" -> {
                     val scale = Math.min(viewW / targetW, viewH / targetH)
@@ -1427,19 +1523,19 @@ class J2meGameView(
                     val left = (width - destW) / 2
                     val top = (height - destH) / 2
                     destRect.set(left, top, left + destW, top + destH)
-                    canvas.drawBitmap(offscreenBitmap, null, destRect, scalePaint)
+                    canvas.drawBitmap(src, null, destRect, scalePaint)
                 }
             }
         }
     }
-
+ 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val viewW = width.toFloat()
         val viewH = height.toFloat()
-
+ 
         var mappedX = 0f
         var mappedY = 0f
-
+ 
         when (scaleMode) {
             "STRETCH" -> {
                 mappedX = event.x / viewW * targetW
@@ -1455,15 +1551,15 @@ class J2meGameView(
                 val destH = targetH * scale
                 val left = (width - destW) / 2f
                 val top = (height - destH) / 2f
-
+ 
                 mappedX = (event.x - left) / scale
                 mappedY = (event.y - top) / scale
             }
         }
-
+ 
         val px = mappedX.toInt()
         val py = mappedY.toInt()
-
+ 
         if (px in 0 until targetW && py in 0 until targetH) {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> j2meCanvas.postPointerPressed(px, py)
@@ -1474,7 +1570,7 @@ class J2meGameView(
         return true
     }
 }
-
+ 
 @Composable
 fun LandscapeEmulatorContent(
     canvas: J2meCanvas,
@@ -1490,7 +1586,7 @@ fun LandscapeEmulatorContent(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-
+ 
     Column(modifier = Modifier.fillMaxSize()) {
         // ── Topbar ───────────────────────────────────────────────────────────
         Row(
@@ -1542,7 +1638,7 @@ fun LandscapeEmulatorContent(
                 }
             }
         }
-
+ 
         // ── Body: 3 columns ──────────────────────────────────────────────────
         Row(
             modifier = Modifier
@@ -1587,7 +1683,7 @@ fun LandscapeEmulatorContent(
                     MiniGrid3x3(activeKey = activeAnalogKey)
                 }
             }
-
+ 
             // ── Center column: soft keys + game screen + bottom bar ────────
             Column(
                 modifier = Modifier
@@ -1606,7 +1702,7 @@ fun LandscapeEmulatorContent(
                     SoftKeyButton("#",   { canvas.postKeyPressed(J2meCanvas.KEY_POUND)         }, { canvas.postKeyReleased(J2meCanvas.KEY_POUND)         }, modifier = Modifier.weight(1f))
                     SoftKeyButton("RSK", { canvas.postKeyPressed(J2meCanvas.KEY_SOFTKEY_RIGHT) }, { canvas.postKeyReleased(J2meCanvas.KEY_SOFTKEY_RIGHT) }, modifier = Modifier.weight(1.3f))
                 }
-
+ 
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -1647,7 +1743,7 @@ fun LandscapeEmulatorContent(
                         Text("$gameFps\nFPS", color = Color(0xFF00E5A0), fontFamily = ShareTechMonoFont, fontSize = 8.sp, fontWeight = FontWeight.Bold, lineHeight = 9.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 }
-
+ 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1657,7 +1753,7 @@ fun LandscapeEmulatorContent(
                     BottomButton("Stop", Icons.Filled.Cancel, { EmulatorEngine.stopGame { onBack() } }, modifier = Modifier.weight(1f))
                 }
             }
-
+ 
             // ── Right column: D-pad + A/B + START/SEL ─────────────────────
             Column(
                 modifier = Modifier
@@ -1695,15 +1791,19 @@ fun LandscapeEmulatorContent(
         }
     }
 }
-
+ 
 @Composable
 fun QuickMenuOverlay(
     scaleMode: String,
     smoothScaling: Boolean,
     fpsLimit: Int,
+    controlType: String = "ANALOG",
+    upscaler: String = "OFF",
     onScaleModeChange: (String) -> Unit,
     onSmoothScalingChange: (Boolean) -> Unit,
     onFpsLimitChange: (Int) -> Unit,
+    onControlTypeChange: (String) -> Unit = {},
+    onUpscalerChange: (String) -> Unit = {},
     onEditLayout: () -> Unit,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
@@ -1741,7 +1841,7 @@ fun QuickMenuOverlay(
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.primary
                 )
-
+ 
                 // ── Display settings ─────────────────────────────────────────
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -1789,7 +1889,7 @@ fun QuickMenuOverlay(
                             onCheckedChange = { onSmoothScalingChange(it) }
                         )
                     }
-
+ 
                     Text(
                         "Batas FPS",
                         fontWeight = FontWeight.SemiBold,
@@ -1814,13 +1914,66 @@ fun QuickMenuOverlay(
 
                 HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
 
+                // ── Control settings ───────────────────────────────────────────
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Tipe Kontrol",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("ANALOG" to "Analog", "DPAD" to "D-Pad").forEach { (value, label) ->
+                            FilterChip(
+                                selected = controlType == value,
+                                onClick = { onControlTypeChange(value) },
+                                label = { Text(label, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Upscaler Gambar",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            "OFF" to "Off",
+                            "RESOLUTION" to "Resolusi",
+                            "HQ2X" to "HQ2X",
+                            "AI" to "AI"
+                        ).forEach { (value, label) ->
+                            FilterChip(
+                                selected = upscaler == value,
+                                onClick = { onUpscalerChange(value) },
+                                label = { Text(label, fontSize = 11.sp) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+ 
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+ 
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Kembali Bermain")
                 }
-
+ 
                 OutlinedButton(
                     onClick = onEditLayout,
                     modifier = Modifier.fillMaxWidth()
@@ -1833,14 +1986,14 @@ fun QuickMenuOverlay(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Edit Tata Letak")
                 }
-
+ 
                 OutlinedButton(
                     onClick = onReset,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Restart Game")
                 }
-
+ 
                 Button(
                     onClick = onExit,
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
@@ -1852,7 +2005,7 @@ fun QuickMenuOverlay(
         }
     }
 }
-
+ 
 // Persist the live display settings to the per-game settings store, preserving
 // any other stored fields (the in-memory GameModel here is built from a partial
 // set of Intent extras, so it is only used to seed defaults on first write).
@@ -1867,6 +2020,18 @@ private fun persistDisplaySettings(
     store.save(game.id, current.copy(scaleMode = scaleMode, smoothScaling = smoothScaling))
 }
 
+// Persist control type and upscaler settings
+private fun persistControlSettings(
+    context: Context,
+    game: GameModel,
+    controlType: String,
+    upscaler: String
+) {
+    val store = GameSettingsStore(context)
+    val current = store.load(game.id) ?: GameSettings.fromGameModel(game)
+    store.save(game.id, current.copy(controlType = controlType, upscaler = upscaler))
+}
+ 
 private fun Context.currentView(): View? {
     if (this is ComponentActivity) {
         return this.window.decorView.findViewById(android.R.id.content)

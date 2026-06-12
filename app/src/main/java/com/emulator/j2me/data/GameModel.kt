@@ -17,4 +17,4 @@ data class GameModel(
     // When true the framebuffer is scaled with bilinear filtering (smooth);
     // when false it is scaled with nearest-neighbor sampling (crisp pixels).
     var smoothScaling: Boolean = false
-)
+)   
