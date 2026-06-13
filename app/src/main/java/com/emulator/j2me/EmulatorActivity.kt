@@ -1955,6 +1955,50 @@ fun LandscapeEmulatorContent(
     }
 }
  
+ /**
+ * Lays out selectable option chips in a grid of [perRow] columns so long labels
+ * (e.g. "STRETCH", "ORIGINAL", "RESOLUTION") stay on a single line instead of
+ * wrapping vertically. Incomplete rows are padded to keep chip widths uniform.
+ */
+@Composable
+private fun <T> OptionChipGrid(
+    options: List<Pair<T, String>>,
+    selectedValue: T,
+    onSelect: (T) -> Unit,
+    perRow: Int = 2
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        options.chunked(perRow).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                rowItems.forEach { (value, label) ->
+                    FilterChip(
+                        selected = selectedValue == value,
+                        onClick = { onSelect(value) },
+                        label = {
+                            Text(
+                                label,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                repeat(perRow - rowItems.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun QuickMenuOverlay(
     scaleMode: String,
@@ -2019,19 +2063,16 @@ fun QuickMenuOverlay(
                         fontSize = 13.sp,
                         color = Color.White.copy(alpha = 0.85f)
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf("FIT", "FILL", "STRETCH", "ORIGINAL").forEach { mode ->
-                            FilterChip(
-                                selected = scaleMode == mode,
-                                onClick = { onScaleModeChange(mode) },
-                                label = { Text(mode, fontSize = 10.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
+                    OptionChipGrid(
+                        options = listOf(
+                            "FIT" to "FIT",
+                            "FILL" to "FILL",
+                            "STRETCH" to "STRETCH",
+                            "ORIGINAL" to "ORIGINAL"
+                        ),
+                        selectedValue = scaleMode,
+                        onSelect = { onScaleModeChange(it) }
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -2111,24 +2152,16 @@ fun QuickMenuOverlay(
                         fontSize = 13.sp,
                         color = Color.White.copy(alpha = 0.85f)
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(
+                     OptionChipGrid(
+                        options = listOf(
                             "OFF" to "Off",
                             "RESOLUTION" to "Resolusi",
                             "HQ2X" to "HQ2X",
                             "AI" to "AI"
-                        ).forEach { (value, label) ->
-                            FilterChip(
-                                selected = upscaler == value,
-                                onClick = { onUpscalerChange(value) },
-                                label = { Text(label, fontSize = 11.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
+                       ),
+                        selectedValue = upscaler,
+                        onSelect = { onUpscalerChange(it) }
+                    )
                 }
  
                 HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
