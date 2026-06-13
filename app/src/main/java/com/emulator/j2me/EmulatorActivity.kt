@@ -17,6 +17,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -1639,6 +1641,17 @@ class J2meGameView(
                     destRect.set(0, 0, width, height)
                     canvas.drawBitmap(src, null, destRect, scalePaint)
                 }
+                "FILL" -> {
+                    // Zoom to fill the whole view while keeping aspect ratio
+                    // (overflow is cropped). Fills empty space without distortion.
+                    val scale = Math.max(viewW / targetW, viewH / targetH)
+                    val destW = (targetW * scale).toInt()
+                    val destH = (targetH * scale).toInt()
+                    val left = (width - destW) / 2
+                    val top = (height - destH) / 2
+                    destRect.set(left, top, left + destW, top + destH)
+                    canvas.drawBitmap(src, null, destRect, scalePaint)
+                }
                 "ORIGINAL" -> {
                     val left = ((width - targetW) / 2).toFloat()
                     val top = ((height - targetH) / 2).toFloat()
@@ -1673,6 +1686,15 @@ class J2meGameView(
             "STRETCH" -> {
                 mappedX = event.x / viewW * targetW
                 mappedY = event.y / viewH * targetH
+            }
+            "FILL" -> {
+                val scale = Math.max(viewW / targetW, viewH / targetH)
+                val destW = targetW * scale
+                val destH = targetH * scale
+                val left = (width - destW) / 2f
+                val top = (height - destH) / 2f
+                mappedX = (event.x - left) / scale
+                mappedY = (event.y - top) / scale
             }
             "ORIGINAL" -> {
                 mappedX = event.x - (width - targetW) / 2f
@@ -1964,13 +1986,16 @@ fun QuickMenuOverlay(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1C24)),
             modifier = Modifier
                 .width(280.dp)
-                .wrapContentHeight()
+                // Cap height so the menu never overflows the screen (esp. in
+                // landscape, where it is short) and stays fully scrollable.
+                .fillMaxHeight(0.9f)
                 .padding(16.dp)
                 .clickable(enabled = false, onClick = {}) // block touch
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1998,11 +2023,11 @@ fun QuickMenuOverlay(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        listOf("FIT", "STRETCH", "ORIGINAL").forEach { mode ->
+                        listOf("FIT", "FILL", "STRETCH", "ORIGINAL").forEach { mode ->
                             FilterChip(
                                 selected = scaleMode == mode,
                                 onClick = { onScaleModeChange(mode) },
-                                label = { Text(mode, fontSize = 11.sp) },
+                                label = { Text(mode, fontSize = 10.sp) },
                                 modifier = Modifier.weight(1f)
                             )
                         }

@@ -570,11 +570,11 @@ fun GameDetailDialog(
                         .padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf("FIT", "STRETCH", "ORIGINAL").forEach { mode ->
+                    listOf("FIT", "FILL", "STRETCH", "ORIGINAL").forEach { mode ->
                         FilterChip(
                             selected = scaleMode == mode,
                             onClick = { scaleMode = mode },
-                            label = { Text(mode) },
+                            label = { Text(mode, fontSize = 11.sp) },
                             modifier = Modifier.weight(1f)
                         )
                     }

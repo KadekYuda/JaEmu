@@ -17,7 +17,10 @@ public abstract class GameCanvas extends Canvas {
 
     private Image offscreenImage;
     private Graphics offscreenGraphics;
-    private int keyState;
+    // Keys currently held down.
+    private int keyStateCurrent;
+    // Keys pressed at least once since the last getKeyStates() poll.
+    private int keyStateLatch;
 
     protected GameCanvas(boolean suppressKeyEvents) {
         super();
@@ -41,9 +44,11 @@ public abstract class GameCanvas extends Canvas {
     }
 
     public int getKeyStates() {
-        // Per J2ME spec: returns bitmask of keys pressed since last call, then clears
-        int state = keyState;
-        keyState = 0;
+        // Per J2ME spec: a bit is set if the key is currently down OR was pressed
+        // at least once since the last call. Currently-held keys persist across
+        // polls (so holding a direction keeps moving); the press latch clears.
+        int state = keyStateCurrent | keyStateLatch;
+        keyStateLatch = 0;
         return state;
     }
 
@@ -68,12 +73,17 @@ public abstract class GameCanvas extends Canvas {
     public void keyPressed(int keyCode) {
         int action = getGameAction(keyCode);
         if (action != 0) {
-            keyState |= (1 << action);
+            int bit = 1 << action;
+            keyStateCurrent |= bit;
+            keyStateLatch |= bit;
         }
     }
 
     @Override
     public void keyReleased(int keyCode) {
-        // bits stay set until getKeyStates() clears them
+        int action = getGameAction(keyCode);
+        if (action != 0) {
+            keyStateCurrent &= ~(1 << action);
+        }
     }
 }

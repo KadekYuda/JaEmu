@@ -239,30 +239,43 @@ public class Graphics {
         canvas.save();
         canvas.translate(drawX, drawY);
 
+        // MIDP Sprite transform constants (NOT sequential): each op is applied to
+        // the source region so that drawing rectDst=(0,0,width,height) fills the
+        // transformed bounding box anchored at (0,0). Sequences below are chosen
+        // so no extra offset is introduced.
+        //   0 TRANS_NONE | 1 MIRROR_ROT180 | 2 MIRROR | 3 ROT180
+        //   4 MIRROR_ROT270 | 5 ROT90 | 6 ROT270 | 7 MIRROR_ROT90
         switch (transform) {
-            case 1: 
-                canvas.rotate(90, (float) destW / 2, (float) destH / 2);
+            case 0: // TRANS_NONE
                 break;
-            case 2: 
-                canvas.rotate(180, (float) destW / 2, (float) destH / 2);
+            case 2: // TRANS_MIRROR (horizontal flip)
+                canvas.translate(width, 0);
+                canvas.scale(-1, 1);
                 break;
-            case 3: 
-                canvas.rotate(270, (float) destW / 2, (float) destH / 2);
+            case 1: // TRANS_MIRROR_ROT180 (vertical flip)
+                canvas.translate(0, height);
+                canvas.scale(1, -1);
                 break;
-            case 4: 
-                canvas.scale(-1, 1, (float) destW / 2, (float) destH / 2);
+            case 3: // TRANS_ROT180
+                canvas.translate(width, height);
+                canvas.scale(-1, -1);
                 break;
-            case 5: 
-                canvas.scale(-1, 1, (float) destW / 2, (float) destH / 2);
-                canvas.rotate(90, (float) destW / 2, (float) destH / 2);
+            case 5: // TRANS_ROT90
+                canvas.translate(height, 0);
+                canvas.rotate(90);
                 break;
-            case 6: 
-                canvas.scale(-1, 1, (float) destW / 2, (float) destH / 2);
-                canvas.rotate(180, (float) destW / 2, (float) destH / 2);
+            case 6: // TRANS_ROT270
+                canvas.translate(0, width);
+                canvas.rotate(270);
                 break;
-            case 7: 
-                canvas.scale(-1, 1, (float) destW / 2, (float) destH / 2);
-                canvas.rotate(270, (float) destW / 2, (float) destH / 2);
+            case 7: // TRANS_MIRROR_ROT90
+                canvas.translate(height, width);
+                canvas.rotate(90);
+                canvas.scale(-1, 1);
+                break;
+            case 4: // TRANS_MIRROR_ROT270
+                canvas.rotate(270);
+                canvas.scale(-1, 1);
                 break;
         }
 
